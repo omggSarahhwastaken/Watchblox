@@ -191,11 +191,13 @@ namespace Watchblox
             _ = RestoreSessionAsync();
 
             _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(_settings.Settings.PollIntervalSeconds) };
-            _pollTimer.Tick += async (s, e) => await PollPresenceAsync();
+            // Async-void timer lambdas: an unhandled throw here kills the
+            // process, so contain it (the poll methods report errors via status).
+            _pollTimer.Tick += async (s, e) => { try { await PollPresenceAsync(); } catch { } };
             _pollTimer.Start();
 
             _syncTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(15) };
-            _syncTimer.Tick += async (s, e) => await SyncFriendsAsync();
+            _syncTimer.Tick += async (s, e) => { try { await SyncFriendsAsync(); } catch { } };
             _syncTimer.Start();
 
             SetStatus("Starting…");
@@ -571,9 +573,16 @@ namespace Watchblox
             if (_networkGraph == null || index < 0 || index >= _networkGraph.Nodes.Count) return;
             var node = _networkGraph.Nodes[index];
             if (!_entries.TryGetValue(node.UserId, out var entry)) return;
-            if (_profileWindow == null)
-                _profileWindow = new ProfileWindow(_api, _thumbs, JoinFriend) { Owner = this };
-            _profileWindow.ShowProfile(entry, node.Degree);
+            try
+            {
+                if (_profileWindow == null)
+                    _profileWindow = new ProfileWindow(_api, _thumbs, JoinFriend) { Owner = this };
+                _profileWindow.ShowProfile(entry, node.Degree);
+            }
+            catch (Exception ex)
+            {
+                SetStatus("Couldn't open profile: " + ex.Message);
+            }
         }
 
         private void RefreshNetworkStatuses()

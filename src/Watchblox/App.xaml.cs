@@ -1,7 +1,10 @@
 using System;
 using System.Globalization;
+using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Data;
 
@@ -23,11 +26,56 @@ namespace Watchblox
 
         private const int SW_RESTORE = 9;
 
+        /// <summary>
+        /// Writes full exception details (type, message, stack trace) to
+        /// %LOCALAPPDATA%\Watchblox\crash.log so a crash is never a mystery
+        /// again. UI-thread exceptions are logged and swallowed so the app
+        /// stays alive; fatal ones are logged before the process dies.
+        /// </summary>
+        private void SetupCrashLogging()
+        {
+            string logPath;
+            try
+            {
+                Directory.CreateDirectory(Services.SettingsService.DataDir);
+                logPath = Path.Combine(Services.SettingsService.DataDir, "crash.log");
+            }
+            catch { return; }
+
+            void WriteCrash(string source, Exception ex)
+            {
+                try
+                {
+                    string version = Assembly.GetExecutingAssembly()
+                        .GetName().Version?.ToString() ?? "?";
+                    File.AppendAllText(logPath,
+                        $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] v{version} [{source}]" +
+                        Environment.NewLine + (ex?.ToString() ?? "(no exception)") +
+                        Environment.NewLine + Environment.NewLine);
+                }
+                catch { }
+            }
+
+            DispatcherUnhandledException += (s, e) =>
+            {
+                WriteCrash("ui", e.Exception);
+                e.Handled = true;
+            };
+            AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+                WriteCrash("fatal", e.ExceptionObject as Exception);
+            TaskScheduler.UnobservedTaskException += (s, e) =>
+            {
+                WriteCrash("task", e.Exception);
+                e.SetObserved();
+            };
+        }
+
         private static Mutex _instanceMutex;
         private static EventWaitHandle _showEvent;
 
         protected override void OnStartup(StartupEventArgs e)
         {
+            SetupCrashLogging();
             try { SetCurrentProcessExplicitAppUserModelID("Sarah.Watchblox"); } catch { }
 
             // Single instance: a second launch (e.g. relaunching after the

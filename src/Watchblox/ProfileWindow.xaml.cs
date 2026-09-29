@@ -23,6 +23,11 @@ namespace Watchblox
             _api = api;
             _thumbs = thumbs;
             _onJoin = onJoin;
+            // This window is a single reusable instance: closing it with the
+            // X button must hide, not destroy, it. Show() on a closed Window
+            // throws InvalidOperationException (crashed the app on the second
+            // dot click in v1.4.0).
+            Closing += (s, e) => { e.Cancel = true; Hide(); };
         }
 
         public void ShowProfile(FriendEntry entry, int connections)
@@ -100,7 +105,7 @@ namespace Watchblox
             }
             catch
             {
-                Dispatcher.Invoke(() =>
+                SafeInvoke(() =>
                 {
                     if (token != _loadToken) return;
                     ProfileBio.Text = "Couldn't load profile.";
@@ -137,7 +142,7 @@ namespace Watchblox
             }
             catch
             {
-                Dispatcher.Invoke(() =>
+                SafeInvoke(() =>
                 {
                     if (token != _loadToken) return;
                     GroupsLoading.Visibility = Visibility.Collapsed;
@@ -159,6 +164,14 @@ namespace Watchblox
         private void ProfileJoin_Click(object sender, RoutedEventArgs e)
         {
             if (_entry != null) _onJoin(_entry);
+        }
+
+        // Dispatcher.Invoke during shutdown throws; the catch blocks below
+        // run outside any try, so guard them.
+        private void SafeInvoke(Action action)
+        {
+            try { Dispatcher.Invoke(action); }
+            catch { }
         }
 
         private class GroupRow

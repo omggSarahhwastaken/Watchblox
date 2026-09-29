@@ -9,7 +9,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>Watchblox</AssemblyName>
     <RootNamespace>Watchblox</RootNamespace>
-    <Version>1.4.0</Version>
+    <Version>1.4.1</Version>
     <Product>Watchblox</Product>
     <Description>Watchblox - Roblox friend and presence companion</Description>
     <ApplicationIcon>app.ico</ApplicationIcon>
