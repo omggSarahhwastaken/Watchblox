@@ -39,25 +39,56 @@ namespace Watchblox.Services
     }
 
     /// <summary>
-    /// Read-only Roblox API client. One shared HttpClient, no cookies, no auth.
-    /// Every public endpoint used here was verified live without credentials.
+    /// Roblox API client. Works without credentials, but a session cookie
+    /// (set via SetSessionCookie) makes presence accurate: Roblox only shows
+    /// real online status to friends, so anonymous presence often reads
+    /// offline. The cookie is never logged or placed in a URL.
     /// </summary>
     public class RobloxApiClient : IDisposable
     {
         private readonly HttpClient _http;
+        private readonly CookieContainer _cookies = new CookieContainer();
         private int _backoffSeconds = 0;
+
+        public bool IsLoggedIn { get; private set; }
 
         public event Action<string> StatusChanged;
         private void Status(string s) => StatusChanged?.Invoke(s);
 
+        /// <summary>Raised once when the server rejects the session cookie.</summary>
+        public event Action SessionExpired;
+
         public RobloxApiClient()
         {
-            _http = new HttpClient();
-            _http.DefaultRequestHeaders.UserAgent.ParseAdd("Watchblox/1.0");
+            var handler = new HttpClientHandler { CookieContainer = _cookies, UseCookies = true };
+            _http = new HttpClient(handler);
+            _http.DefaultRequestHeaders.UserAgent.ParseAdd("Watchblox/1.1");
             _http.Timeout = TimeSpan.FromSeconds(25);
         }
 
         public void Dispose() => _http.Dispose();
+
+        /// <summary>Attaches a .ROBLOSECURITY cookie to all Roblox requests.</summary>
+        public void SetSessionCookie(string cookie)
+        {
+            _cookies.Add(new Cookie(".ROBLOSECURITY", cookie, "/", ".roblox.com"));
+            IsLoggedIn = true;
+        }
+
+        public void ClearSessionCookie()
+        {
+            // Expire it out of the container; the plaintext is simply dropped.
+            _cookies.SetCookies(new Uri("https://www.roblox.com"),
+                ".ROBLOSECURITY=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/");
+            IsLoggedIn = false;
+        }
+
+        private void OnUnauthorized()
+        {
+            if (!IsLoggedIn) return;
+            ClearSessionCookie();
+            try { SessionExpired?.Invoke(); } catch { }
+        }
 
         private async Task<T> WithRetry<T>(Func<Task<T>> call, string what)
         {
@@ -71,6 +102,14 @@ namespace Watchblox.Services
                     return result;
                 }
                 catch (RobloxApiException) { throw; }
+                catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    // The session cookie was rejected: stop using it and tell
+                    // the UI once. Never retried, never rewritten as a
+                    // generic connectivity failure.
+                    OnUnauthorized();
+                    throw new RobloxApiException("Roblox session expired — log in again.");
+                }
                 catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests && attempt < 4)
                 {
                     attempt++;
@@ -99,6 +138,23 @@ namespace Watchblox.Services
                 return v.GetString() ?? "";
             return "";
         }
+
+        // --- authenticated user (proves the session cookie works) -----------
+        public Task<ResolvedUser> GetAuthenticatedUserAsync() =>
+            WithRetry(async () =>
+            {
+                var resp = await _http.GetAsync("https://users.roblox.com/v1/users/authenticated");
+                resp.EnsureSuccessStatusCode();
+                using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+                var root = doc.RootElement;
+                return new ResolvedUser
+                {
+                    Id = root.GetProperty("id").GetInt64(),
+                    Username = OptString(root, "name"),
+                    DisplayName = OptString(root, "displayName"),
+                    Verified = root.TryGetProperty("hasVerifiedBadge", out var vb) && vb.ValueKind == JsonValueKind.True
+                };
+            }, "session check");
 
         // --- username -> ID -------------------------------------------------
         public Task<ResolvedUser> ResolveUsernameAsync(string username) =>

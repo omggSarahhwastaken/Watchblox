@@ -15,5 +15,8 @@ namespace Watchblox.Models
         public double InterfaceScale { get; set; } = 1.0;
         public List<long> WatchlistIds { get; set; } = new List<long>();
         public bool HasCompletedOnboarding { get; set; } = false;
+        // DPAPI-encrypted .ROBLOSECURITY blob (CurrentUser scope). The
+        // plaintext cookie is never written to disk.
+        public string EncryptedCookie { get; set; } = "";
     }
 }

@@ -29,15 +29,18 @@ namespace Watchblox
         private ActivityStore _activity;
         private PresenceMonitor _monitor;
         private UpdateService _updates;
+        private MutualService _mutuals;
         private DispatcherTimer _pollTimer;
         private DispatcherTimer _syncTimer;
         private bool _polling;
+        private bool _sweeping;
         private bool _initialized;
 
         private readonly Dictionary<long, FriendEntry> _entries = new Dictionary<long, FriendEntry>();
         private readonly Dictionary<long, string> _gameNames = new Dictionary<long, string>();
         private readonly ObservableCollection<FriendEntry> _friendsView = new ObservableCollection<FriendEntry>();
         private readonly ObservableCollection<FriendEntry> _watchView = new ObservableCollection<FriendEntry>();
+        private readonly ObservableCollection<FriendEntry> _mutualView = new ObservableCollection<FriendEntry>();
         private readonly ObservableCollection<WbActivityEvent> _activityView = new ObservableCollection<WbActivityEvent>();
 
         private string _filter = "All";
@@ -58,6 +61,8 @@ namespace Watchblox
 
             _api = new RobloxApiClient();
             _api.StatusChanged += msg => SetStatus(msg);
+            _api.SessionExpired += OnSessionExpired;
+            _mutuals = new MutualService(_api);
             _settings = new SettingsService();
             _settings.Load();
             _names = new NameCache();
@@ -70,6 +75,7 @@ namespace Watchblox
             FriendsList.ItemsSource = _friendsView;
             WatchListBox.ItemsSource = _watchView;
             ActivityList.ItemsSource = _activityView;
+            MutualListBox.ItemsSource = _mutualView;
 
             if (_settings.Settings.HasCompletedOnboarding && _settings.Settings.TrackedUserId != null)
                 InitMain();
@@ -176,6 +182,7 @@ namespace Watchblox
             ApplySettingsToUi();
             SetupTray();
             FilterChip_Click(ChipAll, new RoutedEventArgs());
+            _ = RestoreSessionAsync();
 
             _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(_settings.Settings.PollIntervalSeconds) };
             _pollTimer.Tick += async (s, e) => await PollPresenceAsync();
@@ -255,6 +262,7 @@ namespace Watchblox
             await ResolveNamesAsync(allIds);
             await EnsureEntriesAsync(allIds, friendSet);
             UpdateSidebarCounts();
+            PopulateMutualPicker();
             SetStatus($"Synced {ids.Count} friends.");
             _ = PrefetchAvatarsAsync(allIds);
         }
@@ -330,6 +338,7 @@ namespace Watchblox
                 if (ids.Count == 0) { SetStatus("No friends to watch yet."); return; }
                 await _monitor.PollAsync(_api, ids);
                 await RefreshFromPresenceAsync();
+                _ = SweepMutualsAsync();
                 int online = _entries.Values.Count(e => e.Status == PresenceType.Online || e.Status == PresenceType.InGame);
                 SetStatus($"Updated {DateTime.Now:t} · {online} online");
             }
@@ -472,12 +481,13 @@ namespace Watchblox
         private void Nav_Click(object sender, RoutedEventArgs e)
         {
             var btn = sender as Button;
-            foreach (var b in new[] { NavFriends, NavActivity, NavWatchlist, NavSettings })
+            foreach (var b in new[] { NavFriends, NavActivity, NavWatchlist, NavMutuals, NavSettings })
                 b.Tag = "";
             btn.Tag = "Active";
             FriendsPage.Visibility = btn == NavFriends ? Visibility.Visible : Visibility.Collapsed;
             ActivityPage.Visibility = btn == NavActivity ? Visibility.Visible : Visibility.Collapsed;
             WatchlistPage.Visibility = btn == NavWatchlist ? Visibility.Visible : Visibility.Collapsed;
+            MutualsPage.Visibility = btn == NavMutuals ? Visibility.Visible : Visibility.Collapsed;
             SettingsPage.Visibility = btn == NavSettings ? Visibility.Visible : Visibility.Collapsed;
         }
 
@@ -670,10 +680,196 @@ namespace Watchblox
             _entries.Clear();
             _friendsView.Clear();
             _watchView.Clear();
+            _mutualView.Clear();
+            _mutuals.Clear();
+            MutualPicker.Items.Clear();
+            MutualHeader.Text = "";
+            MutualEmpty.Text = "Pick a friend above to see who you both know.";
+            MutualEmpty.Visibility = Visibility.Visible;
             MainView.Visibility = Visibility.Collapsed;
             OnboardingView.Visibility = Visibility.Visible;
             OnboardResult.Visibility = Visibility.Collapsed;
             OnboardUsername.Text = "";
+        }
+
+        // ================= login =================
+
+        private void UpdateLoginUi(bool loggedIn, string username)
+        {
+            LoginForm.Visibility = loggedIn ? Visibility.Collapsed : Visibility.Visible;
+            LogoutForm.Visibility = loggedIn ? Visibility.Visible : Visibility.Collapsed;
+            if (loggedIn) LoggedInLabel.Text = "Logged in as @" + username;
+        }
+
+        private async Task RestoreSessionAsync()
+        {
+            string blob = _settings.Settings.EncryptedCookie;
+            if (string.IsNullOrEmpty(blob)) { UpdateLoginUi(false, ""); return; }
+            try
+            {
+                _api.SetSessionCookie(CookieVault.Unprotect(blob));
+                var me = await _api.GetAuthenticatedUserAsync();
+                UpdateLoginUi(true, me.Username);
+                SetStatus("Logged in as @" + me.Username + ".");
+            }
+            catch
+            {
+                // Bad or expired blob: drop it and stay logged out.
+                _api.ClearSessionCookie();
+                _settings.Settings.EncryptedCookie = "";
+                _settings.Save();
+                UpdateLoginUi(false, "");
+            }
+        }
+
+        private async void Login_Click(object sender, RoutedEventArgs e)
+        {
+            string cookie = CookieBox.Password.Trim();
+            CookieBox.Clear();
+            if (string.IsNullOrEmpty(cookie))
+            {
+                LoginStatus.Text = "Paste your .ROBLOSECURITY cookie first.";
+                return;
+            }
+            LoginStatus.Text = "Verifying…";
+            try
+            {
+                _api.SetSessionCookie(cookie);
+                var me = await _api.GetAuthenticatedUserAsync();
+                _settings.Settings.EncryptedCookie = CookieVault.Protect(cookie);
+                _settings.Save();
+                UpdateLoginUi(true, me.Username);
+                LoginStatus.Text = "";
+                SetStatus("Logged in as @" + me.Username + " — presence is now friend-accurate.");
+                _ = PollPresenceAsync(); // re-poll with the session: statuses sharpen up
+            }
+            catch (Exception ex)
+            {
+                _api.ClearSessionCookie();
+                LoginStatus.Text = ex.Message;
+            }
+        }
+
+        private void Logout_Click(object sender, RoutedEventArgs e)
+        {
+            _api.ClearSessionCookie();
+            _settings.Settings.EncryptedCookie = "";
+            _settings.Save();
+            _mutuals.Clear();
+            foreach (var entry in _entries.Values) entry.MutualCount = -1;
+            _mutualView.Clear();
+            MutualHeader.Text = "";
+            MutualEmpty.Text = "Pick a friend above to see who you both know.";
+            MutualEmpty.Visibility = Visibility.Visible;
+            LoginStatus.Text = "";
+            UpdateLoginUi(false, "");
+            RefreshDisplay();
+            SetStatus("Logged out.");
+        }
+
+        private void OnSessionExpired()
+        {
+            Dispatcher.Invoke(() =>
+            {
+                _settings.Settings.EncryptedCookie = "";
+                _settings.Save();
+                UpdateLoginUi(false, "");
+                SetStatus("Roblox session expired — log in again.");
+                ToastService.Show("Watchblox", "Roblox session expired — log in again.");
+            });
+        }
+
+        // ================= mutuals =================
+
+        private void PopulateMutualPicker()
+        {
+            if (!_initialized) return;
+            long? selected = (MutualPicker.SelectedItem as ComboBoxItem)?.Tag as long?;
+            MutualPicker.SelectionChanged -= MutualPicker_Changed;
+            MutualPicker.Items.Clear();
+            foreach (var e in _entries.Values.Where(x => !x.IsWatchlist).OrderBy(x => x.DisplayName))
+            {
+                var item = new ComboBoxItem
+                {
+                    Content = e.DisplayName + " (@" + e.Username + ")",
+                    Tag = e.UserId
+                };
+                MutualPicker.Items.Add(item);
+                if (selected == e.UserId) MutualPicker.SelectedItem = item;
+            }
+            MutualPicker.SelectionChanged += MutualPicker_Changed;
+        }
+
+        private void MutualPicker_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_initialized || MutualPicker.SelectedItem is not ComboBoxItem item) return;
+            if (item.Tag is long userId) _ = LoadMutualsAsync(userId);
+        }
+
+        private async Task LoadMutualsAsync(long userId)
+        {
+            _mutualView.Clear();
+            MutualEmpty.Visibility = Visibility.Collapsed;
+            MutualHeader.Text = "Loading…";
+            try
+            {
+                var myIds = new HashSet<long>(
+                    _entries.Values.Where(x => !x.IsWatchlist).Select(x => x.UserId));
+                var mutualIds = await _mutuals.GetMutualIdsAsync(userId, myIds);
+                await ResolveNamesAsync(mutualIds);
+                if (_entries.TryGetValue(userId, out var picked)) picked.MutualCount = mutualIds.Count;
+                foreach (var id in mutualIds)
+                {
+                    var rec = _names.Get(id);
+                    _mutualView.Add(new FriendEntry
+                    {
+                        UserId = id,
+                        Username = rec?.Username ?? ("user" + id),
+                        DisplayName = rec?.DisplayName ?? ("user" + id),
+                        Verified = rec?.Verified ?? false
+                    });
+                }
+                MutualHeader.Text = mutualIds.Count == 1 ? "1 mutual friend" : $"{mutualIds.Count} mutual friends";
+                if (mutualIds.Count == 0)
+                {
+                    MutualEmpty.Text = "No mutual friends found.";
+                    MutualEmpty.Visibility = Visibility.Visible;
+                }
+                _ = PrefetchAvatarsAsync(mutualIds);
+            }
+            catch (Exception ex)
+            {
+                MutualHeader.Text = "";
+                MutualEmpty.Text = "Couldn't load mutuals: " + ex.Message;
+                MutualEmpty.Visibility = Visibility.Visible;
+            }
+        }
+
+        // Staggered background sweep: a couple of friends per presence poll,
+        // so mutual badges on the Friends page warm up over time without
+        // hammering the API.
+        private async Task SweepMutualsAsync()
+        {
+            if (_sweeping) return;
+            _sweeping = true;
+            try
+            {
+                var myIds = new HashSet<long>(
+                    _entries.Values.Where(x => !x.IsWatchlist).Select(x => x.UserId));
+                var targets = _entries.Values
+                    .Where(x => !x.IsWatchlist && x.MutualCount < 0)
+                    .Take(2).ToList();
+                foreach (var t in targets)
+                {
+                    try
+                    {
+                        var mutual = await _mutuals.GetMutualIdsAsync(t.UserId, myIds);
+                        t.MutualCount = mutual.Count;
+                    }
+                    catch { /* try again next cycle */ }
+                }
+            }
+            finally { _sweeping = false; }
         }
 
         // ================= updates =================

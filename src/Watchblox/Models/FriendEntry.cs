@@ -71,6 +71,23 @@ namespace Watchblox.Models
         public long? PlaceId { get; set; }
         public string GameServerId { get; set; } = "";
 
+        // Mutual-friend count vs the tracked account. -1 = not computed yet.
+        private int _mutualCount = -1;
+        public int MutualCount
+        {
+            get => _mutualCount;
+            set
+            {
+                _mutualCount = value;
+                Raise(nameof(MutualCount));
+                Raise(nameof(MutualText));
+                Raise(nameof(MutualVisible));
+            }
+        }
+
+        public string MutualText => _mutualCount == 1 ? "1 mutual friend" : $"{_mutualCount} mutual friends";
+        public bool MutualVisible => _mutualCount >= 0;
+
         public string StatusText => _status switch
         {
             PresenceType.Online => "Online",

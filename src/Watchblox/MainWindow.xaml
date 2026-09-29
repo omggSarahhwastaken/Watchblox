@@ -62,6 +62,9 @@
                         <TextBlock FontSize="12" Foreground="{StaticResource TextDimBrush}">
                             <Run Text="@"/><Run Text="{Binding Username}"/>
                         </TextBlock>
+                        <TextBlock Text="{Binding MutualText}" FontSize="11"
+                                   Foreground="{StaticResource TextDimBrush}" Margin="0,2,0,0"
+                                   Visibility="{Binding MutualVisible, Converter={StaticResource BoolToVis}}"/>
                         <TextBlock Text="{Binding GameLine}" FontSize="13"
                                    Foreground="{StaticResource AccentBrush}" Margin="0,2,0,0"
                                    Visibility="{Binding GameLineVisible, Converter={StaticResource BoolToVis}}"/>
@@ -213,6 +216,8 @@
                                 Click="Nav_Click" Tag=""/>
                         <Button x:Name="NavWatchlist" Content="Watchlist" Style="{StaticResource NavButton}"
                                 Click="Nav_Click" Tag=""/>
+                        <Button x:Name="NavMutuals" Content="Mutuals" Style="{StaticResource NavButton}"
+                                Click="Nav_Click" Tag=""/>
                         <Button x:Name="NavSettings" Content="Settings" Style="{StaticResource NavButton}"
                                 Click="Nav_Click" Tag=""/>
                     </StackPanel>
@@ -319,6 +324,36 @@
                              ScrollViewer.VerticalScrollBarVisibility="Auto"/>
                 </Grid>
 
+                <!-- Mutuals page -->
+                <Grid x:Name="MutualsPage" Margin="22,18,22,12" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="Mutual friends" FontFamily="{StaticResource MinecraftTitle}"
+                               FontSize="28" Foreground="{StaticResource TextBrush}"/>
+                    <TextBlock Grid.Row="1" Text="Who you and a friend both know."
+                               Foreground="{StaticResource TextDimBrush}" FontSize="13"
+                               Margin="0,6,0,0"/>
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,14,0,14">
+                        <ComboBox x:Name="MutualPicker" Width="280" HorizontalAlignment="Left"
+                                  SelectionChanged="MutualPicker_Changed"/>
+                        <TextBlock x:Name="MutualHeader" FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextBrush}"
+                                   VerticalAlignment="Center" Margin="16,0,0,0"/>
+                    </StackPanel>
+                    <ListBox x:Name="MutualListBox" Grid.Row="3"
+                             ItemTemplate="{StaticResource FriendRowTemplate}"
+                             HorizontalContentAlignment="Stretch"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto"/>
+                    <TextBlock x:Name="MutualEmpty" Grid.Row="3"
+                               Text="Pick a friend above to see who you both know."
+                               Foreground="{StaticResource TextDimBrush}" FontSize="13"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Grid>
+
                 <!-- Settings page -->
                 <ScrollViewer x:Name="SettingsPage" Margin="22,18,22,12" Visibility="Collapsed"
                               VerticalScrollBarVisibility="Auto">
@@ -377,6 +412,34 @@
                                        VerticalAlignment="Center" Margin="0,0,12,0"/>
                             <Button Content="Switch account" Style="{StaticResource GhostButton}"
                                     Padding="14,8" Click="SwitchAccount_Click"/>
+                        </StackPanel>
+
+                        <TextBlock Text="Roblox login" FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextBrush}" Margin="0,20,0,8"/>
+                        <TextBlock Text="Log in so Watchblox sees your friends' real online status. Roblox only shows accurate presence to friends — without login, friends often appear offline."
+                                   FontSize="13" Foreground="{StaticResource TextDimBrush}"
+                                   TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <StackPanel x:Name="LoginForm">
+                            <PasswordBox x:Name="CookieBox" Width="420" HorizontalAlignment="Left"
+                                         Margin="0,0,0,8"/>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="Log in" Style="{StaticResource PrimaryButton}"
+                                        Padding="18,8" Click="Login_Click"/>
+                                <TextBlock x:Name="LoginStatus" FontSize="13"
+                                           Foreground="{StaticResource TextDimBrush}"
+                                           VerticalAlignment="Center" Margin="12,0,0,0"
+                                           TextWrapping="Wrap" MaxWidth="300"/>
+                            </StackPanel>
+                            <TextBlock Text="Paste your .ROBLOSECURITY cookie (browser dev tools → Application → Cookies → roblox.com). It is encrypted on this PC and only ever sent to Roblox."
+                                       FontSize="12" Foreground="{StaticResource TextDimBrush}"
+                                       TextWrapping="Wrap" Margin="0,8,0,0"/>
+                        </StackPanel>
+                        <StackPanel x:Name="LogoutForm" Visibility="Collapsed" Orientation="Horizontal">
+                            <TextBlock x:Name="LoggedInLabel" FontSize="13"
+                                       Foreground="{StaticResource TextDimBrush}"
+                                       VerticalAlignment="Center" Margin="0,0,12,0"/>
+                            <Button Content="Log out" Style="{StaticResource GhostButton}"
+                                    Padding="14,8" Click="Logout_Click"/>
                         </StackPanel>
                     </StackPanel>
                 </ScrollViewer>
