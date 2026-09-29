@@ -12,6 +12,17 @@ namespace Watchblox
         [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
         private static extern void SetCurrentProcessExplicitAppUserModelID(string id);
 
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        private const int SW_RESTORE = 9;
+
         private static Mutex _instanceMutex;
         private static EventWaitHandle _showEvent;
 
@@ -27,12 +38,29 @@ namespace Watchblox
             catch { created = true; }
             if (!created)
             {
+                bool woke = false;
                 try
                 {
                     using (var ev = EventWaitHandle.OpenExisting(@"Local\Sarah.Watchblox.ShowMe"))
-                        ev.Set();
+                    { ev.Set(); woke = true; }
                 }
                 catch { }
+                if (!woke)
+                {
+                    // The running copy is an older version that doesn't know
+                    // the wake-up event: restore its window directly so the
+                    // user is never left with no window at all.
+                    try
+                    {
+                        IntPtr hwnd = FindWindow(null, "Watchblox");
+                        if (hwnd != IntPtr.Zero)
+                        {
+                            ShowWindow(hwnd, SW_RESTORE);
+                            SetForegroundWindow(hwnd);
+                        }
+                    }
+                    catch { }
+                }
                 Shutdown();
                 return;
             }

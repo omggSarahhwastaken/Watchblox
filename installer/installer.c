@@ -23,6 +23,7 @@
 #include <string.h>
 #include <conio.h>
 #include <shlobj.h>
+#include <tlhelp32.h>
 
 #define APP_DISPLAY_NAME    "Watchblox"
 #define APP_DIR_NAME        "Watchblox"
@@ -391,6 +392,36 @@ static void DoUninstall(const char *selfPath) {
     DoUninstallGo(selfPath);
 }
 
+/* Terminate any running copies of the app before the install-dir wipe, so a
+ * stale process (e.g. one hidden in the tray) can never hold the install
+ * folder locked or keep the single-instance mutex when the new copy
+ * auto-launches. */
+static void KillRunningApp(void) {
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    PROCESSENTRY32 pe;
+    DWORD selfPid;
+    if (snap == INVALID_HANDLE_VALUE)
+        return;
+    pe.dwSize = sizeof(pe);
+    selfPid = GetCurrentProcessId();
+    if (Process32First(snap, &pe)) {
+        do {
+            if (pe.th32ProcessID != selfPid && StrCaseEq(pe.szExeFile, APP_EXE_NAME)) {
+                HANDLE h = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE,
+                                       FALSE, pe.th32ProcessID);
+                if (h) {
+                    TerminateProcess(h, 1);
+                    WaitForSingleObject(h, 5000);
+                    CloseHandle(h);
+                    printf("  Closed a running copy of %s (pid %lu).\n",
+                           APP_EXE_NAME, (unsigned long)pe.th32ProcessID);
+                }
+            }
+        } while (Process32Next(snap, &pe));
+    }
+    CloseHandle(snap);
+}
+
 /* ------------------------------------------------------------------ */
 /* Install                                                             */
 /* ------------------------------------------------------------------ */
@@ -435,6 +466,7 @@ static void DoInstall(const char *selfPath) {
 
     /* ---- Step 2: install ---------------------------------------- */
     printf("[2/2] Installing to %s...\n", installDir);
+    KillRunningApp();
     /* Clean-install semantics: remove the old install dir first so an
      * update can never leave stale files behind. Never wipe the folder
      * we are currently running from. */
