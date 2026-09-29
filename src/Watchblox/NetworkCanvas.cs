@@ -103,12 +103,22 @@ namespace Watchblox
         private Point ToWorld(Point screen) =>
             new Point((screen.X - _tx) / _scale, (screen.Y - _ty) / _scale);
 
+        // Mouse math runs in the canvas's PARENT coordinate space (screen pixels
+        // inside the border). Measuring against the canvas itself would include
+        // its own RenderTransform, which made pan speed and the zoom anchor
+        // point depend on the current zoom level.
+        private Point CursorPos(MouseEventArgs e)
+        {
+            var parent = Parent as UIElement;
+            return parent != null ? e.GetPosition(parent) : e.GetPosition(this);
+        }
+
         private int HitTest(Point screen)
         {
             if (_graph == null) return -1;
             var w = ToWorld(screen);
             int best = -1;
-            double bestD = NodeRadius + 6 / _scale;
+            double bestD = NodeRadius + 8 / _scale;
             for (int i = 0; i < _graph.Nodes.Count; i++)
             {
                 var n = _graph.Nodes[i];
@@ -121,8 +131,15 @@ namespace Watchblox
         protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
         {
             base.OnMouseLeftButtonDown(e);
+            if (e.ClickCount == 2)
+            {
+                // double-click empty space = reset view
+                if (HitTest(CursorPos(e)) < 0) FitToView();
+                e.Handled = true;
+                return;
+            }
             Focus();
-            _pressPoint = e.GetPosition(this);
+            _pressPoint = CursorPos(e);
             _pressNode = HitTest(_pressPoint.Value);
             _dragging = false;
             CaptureMouse();
@@ -133,10 +150,10 @@ namespace Watchblox
         {
             base.OnMouseMove(e);
             if (_pressPoint == null) return;
-            var p = e.GetPosition(this);
+            var p = CursorPos(e);
             if (!_dragging)
             {
-                if (Math.Abs(p.X - _pressPoint.Value.X) + Math.Abs(p.Y - _pressPoint.Value.Y) < 4)
+                if (Math.Abs(p.X - _pressPoint.Value.X) + Math.Abs(p.Y - _pressPoint.Value.Y) < 5)
                     return;
                 _dragging = true;
             }
@@ -161,9 +178,9 @@ namespace Watchblox
         {
             base.OnMouseWheel(e);
             double f = e.Delta > 0 ? 1.15 : 1.0 / 1.15;
-            var p = e.GetPosition(this);
+            var p = CursorPos(e);
             var w = ToWorld(p);
-            _scale = Math.Clamp(_scale * f, 0.15, 8);
+            _scale = Math.Clamp(_scale * f, 0.1, 10);
             _tx = p.X - w.X * _scale;
             _ty = p.Y - w.Y * _scale;
             ApplyTransform();

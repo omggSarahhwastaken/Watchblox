@@ -515,6 +515,8 @@ namespace Watchblox
             NetworkCanvas.RefreshNodes();
         }
 
+        private void NetworkReset_Click(object sender, RoutedEventArgs e) => NetworkCanvas.FitToView();
+
         private async Task BuildNetworkAsync()
         {
             _networkCts?.Cancel();

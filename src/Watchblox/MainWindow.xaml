@@ -385,6 +385,9 @@
                         <CheckBox x:Name="NetworkLabelsCheck" Content="Show labels" IsChecked="True"
                                   Checked="NetworkLabels_Changed" Unchecked="NetworkLabels_Changed"
                                   VerticalAlignment="Center" Margin="16,0,0,0"/>
+                        <Button x:Name="NetworkResetBtn" Content="Reset view"
+                                Style="{StaticResource GhostButton}"
+                                Padding="14,8" Margin="8,0,0,0" Click="NetworkReset_Click"/>
                     </StackPanel>
                     <Grid Grid.Row="3">
                         <Grid.ColumnDefinitions>

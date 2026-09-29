@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -51,17 +52,28 @@ namespace Watchblox.Services
                     Status = f.Status
                 });
 
-            var sets = new Dictionary<long, HashSet<long>>(graph.Nodes.Count);
+            // Friend lists fetch concurrently (5 at a time — the API client already
+            // backs off exponentially on 429s). The 1h MutualService cache makes
+            // rebuilds nearly instant.
+            var sets = new ConcurrentDictionary<long, HashSet<long>>();
             int done = 0;
-            foreach (var n in graph.Nodes)
+            using var gate = new SemaphoreSlim(5, 5);
+            var tasks = graph.Nodes.Select(async n =>
             {
-                ct.ThrowIfCancellationRequested();
-                bool cached = _mutuals.IsCached(n.UserId);
-                sets[n.UserId] = await _mutuals.GetFriendIdsAsync(n.UserId);
-                if (!cached)
-                    await Task.Delay(200, ct); // ~5 fresh fetches/sec max
-                progress?.Report((++done, graph.Nodes.Count));
-            }
+                await gate.WaitAsync(ct);
+                try
+                {
+                    ct.ThrowIfCancellationRequested();
+                    sets[n.UserId] = await _mutuals.GetFriendIdsAsync(n.UserId);
+                }
+                finally
+                {
+                    gate.Release();
+                    progress?.Report((Interlocked.Increment(ref done), graph.Nodes.Count));
+                }
+            });
+            await Task.WhenAll(tasks);
+            ct.ThrowIfCancellationRequested();
 
             int count = graph.Nodes.Count;
             for (int i = 0; i < count; i++)
