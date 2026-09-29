@@ -9,7 +9,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>Watchblox</AssemblyName>
     <RootNamespace>Watchblox</RootNamespace>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Product>Watchblox</Product>
     <Description>Watchblox - Roblox friend and presence companion</Description>
     <ApplicationIcon>app.ico</ApplicationIcon>
@@ -20,12 +20,6 @@
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Resource Include="Fonts\Minecraft-Regular.otf" />
-    <Resource Include="Fonts\Minecraft-Italic.otf" />
-    <Resource Include="Fonts\Minecraft-Bold.otf" />
-    <Resource Include="Fonts\Minecraft-BoldItalic.otf" />
-  </ItemGroup>
   <ItemGroup>
     <Content Include="app.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

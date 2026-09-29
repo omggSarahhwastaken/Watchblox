@@ -633,7 +633,8 @@ namespace Watchblox
             s.CheckForUpdatesOnLaunch = UpdateCheckBox.IsChecked == true;
             s.AutoInstallUpdates = AutoUpdateCheckBox.IsChecked == true;
             s.MinimizeToTray = TrayCheck.IsChecked == true;
-            _settings.Save();
+            if (!_settings.Save())
+                SetStatus("Couldn't save settings — the change may not stick after restart.");
             SetStartupRegistration(s.StartWithWindows);
         }
 
@@ -959,11 +960,14 @@ namespace Watchblox
             }
             else
             {
+                // Really exiting: flush settings so a toggle changed moments
+                // before close can never be lost.
+                _settings.Save();
                 if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
             }
         }
 
-        private void RestoreFromTray()
+        internal void RestoreFromTray()
         {
             Show();
             WindowState = WindowState.Normal;
