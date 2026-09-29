@@ -736,7 +736,7 @@ namespace Watchblox
             try
             {
                 string iconPath = Path.Combine(
-                    Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? "", "app.ico");
+                    AppContext.BaseDirectory, "app.ico");
                 _tray = new System.Windows.Forms.NotifyIcon
                 {
                     Text = "Watchblox",
