@@ -1,6 +1,7 @@
 <Window x:Class="Watchblox.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Watchblox"
         Title="Watchblox" Height="660" Width="940"
         MinHeight="540" MinWidth="780"
         Background="{StaticResource BgBrush}"
@@ -218,6 +219,8 @@
                                 Click="Nav_Click" Tag=""/>
                         <Button x:Name="NavMutuals" Content="Mutuals" Style="{StaticResource NavButton}"
                                 Click="Nav_Click" Tag=""/>
+                        <Button x:Name="NavNetwork" Content="Network" Style="{StaticResource NavButton}"
+                                Click="Nav_Click" Tag=""/>
                         <Button x:Name="NavSettings" Content="Settings" Style="{StaticResource NavButton}"
                                 Click="Nav_Click" Tag=""/>
                     </StackPanel>
@@ -352,6 +355,72 @@
                                Text="Pick a friend above to see who you both know."
                                Foreground="{StaticResource TextDimBrush}" FontSize="13"
                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Grid>
+
+                <!-- Network page -->
+                <Grid x:Name="NetworkPage" Margin="22,18,22,12" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="Friend network"
+                               FontSize="28" Foreground="{StaticResource TextBrush}"/>
+                    <TextBlock Grid.Row="1" Text="Every friend is a dot, colored by status — lines connect friends who've added each other."
+                               Foreground="{StaticResource TextDimBrush}" FontSize="13"
+                               Margin="0,6,0,0"/>
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,14,0,12">
+                        <Button x:Name="NetworkBuildBtn" Content="Build network"
+                                Style="{StaticResource PrimaryButton}"
+                                Padding="18,8" Click="NetworkBuild_Click"/>
+                        <Button x:Name="NetworkCancelBtn" Content="Cancel"
+                                Style="{StaticResource GhostButton}" Visibility="Collapsed"
+                                Padding="14,8" Margin="8,0,0,0" Click="NetworkCancel_Click"/>
+                        <ProgressBar x:Name="NetworkProgress" Width="200" Height="16"
+                                     Visibility="Collapsed" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        <TextBlock x:Name="NetworkStatus" FontSize="13"
+                                   Foreground="{StaticResource TextDimBrush}"
+                                   VerticalAlignment="Center" Margin="12,0,0,0" TextWrapping="Wrap"/>
+                        <CheckBox x:Name="NetworkLabelsCheck" Content="Show labels" IsChecked="True"
+                                  Checked="NetworkLabels_Changed" Unchecked="NetworkLabels_Changed"
+                                  VerticalAlignment="Center" Margin="16,0,0,0"/>
+                    </StackPanel>
+                    <Grid Grid.Row="3">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="10"
+                                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                            <local:NetworkCanvas x:Name="NetworkCanvas"/>
+                        </Border>
+                        <StackPanel x:Name="NetworkInfo" Grid.Column="1" Width="250" Margin="14,0,0,0"
+                                    Visibility="Collapsed" VerticalAlignment="Top">
+                            <Border Width="56" Height="56" CornerRadius="28"
+                                    Background="{StaticResource Surface2Brush}"
+                                    HorizontalAlignment="Left" Margin="0,0,0,10">
+                                <TextBlock x:Name="NetworkInfoLetter" Text="?" FontSize="24"
+                                           Foreground="{StaticResource TextBrush}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock x:Name="NetworkInfoName" FontSize="17" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextBrush}" TextWrapping="Wrap"/>
+                            <TextBlock x:Name="NetworkInfoUser" FontSize="13"
+                                       Foreground="{StaticResource TextDimBrush}" Margin="0,2,0,8"/>
+                            <TextBlock x:Name="NetworkInfoStatus" FontSize="13" Margin="0,0,0,4"/>
+                            <TextBlock x:Name="NetworkInfoConns" FontSize="13"
+                                       Foreground="{StaticResource TextDimBrush}" Margin="0,0,0,12"
+                                       TextWrapping="Wrap"/>
+                            <Button x:Name="NetworkJoinBtn" Content="Join server"
+                                    Style="{StaticResource PrimaryButton}" Visibility="Collapsed"
+                                    Padding="14,8" HorizontalAlignment="Left"
+                                    Click="NetworkJoin_Click"/>
+                            <TextBlock Text="Click another dot to inspect it. Drag to pan, scroll to zoom."
+                                       FontSize="12" Foreground="{StaticResource TextDimBrush}"
+                                       Margin="0,16,0,0" TextWrapping="Wrap"/>
+                        </StackPanel>
+                    </Grid>
                 </Grid>
 
                 <!-- Settings page -->

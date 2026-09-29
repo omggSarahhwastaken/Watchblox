@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -51,6 +52,9 @@ namespace Watchblox
         private System.Windows.Forms.NotifyIcon _tray;
         private bool _reallyExit;
         private string _trackedDisplayName = "";
+        private NetworkGraph _networkGraph;
+        private CancellationTokenSource _networkCts;
+        private bool _networkAutoBuilt;
 
         public MainWindow()
         {
@@ -181,6 +185,7 @@ namespace Watchblox
 
             ApplySettingsToUi();
             SetupTray();
+            NetworkCanvas.NodeSelected += NetworkNode_Selected;
             FilterChip_Click(ChipAll, new RoutedEventArgs());
             _ = RestoreSessionAsync();
 
@@ -380,6 +385,7 @@ namespace Watchblox
                 entry.GameServerId = p.GameId ?? "";
             }
             RefreshDisplay();
+            RefreshNetworkStatuses();
         }
 
         private void OnTransitions(List<PresenceTransition> transitions)
@@ -481,14 +487,116 @@ namespace Watchblox
         private void Nav_Click(object sender, RoutedEventArgs e)
         {
             var btn = sender as Button;
-            foreach (var b in new[] { NavFriends, NavActivity, NavWatchlist, NavMutuals, NavSettings })
+            foreach (var b in new[] { NavFriends, NavActivity, NavWatchlist, NavMutuals, NavNetwork, NavSettings })
                 b.Tag = "";
             btn.Tag = "Active";
             FriendsPage.Visibility = btn == NavFriends ? Visibility.Visible : Visibility.Collapsed;
             ActivityPage.Visibility = btn == NavActivity ? Visibility.Visible : Visibility.Collapsed;
             WatchlistPage.Visibility = btn == NavWatchlist ? Visibility.Visible : Visibility.Collapsed;
             MutualsPage.Visibility = btn == NavMutuals ? Visibility.Visible : Visibility.Collapsed;
+            NetworkPage.Visibility = btn == NavNetwork ? Visibility.Visible : Visibility.Collapsed;
             SettingsPage.Visibility = btn == NavSettings ? Visibility.Visible : Visibility.Collapsed;
+            if (btn == NavNetwork && !_networkAutoBuilt)
+            {
+                _networkAutoBuilt = true;
+                _ = BuildNetworkAsync();
+            }
+        }
+
+        // --- Friend network ------------------------------------------------
+        private void NetworkBuild_Click(object sender, RoutedEventArgs e) => _ = BuildNetworkAsync();
+
+        private void NetworkCancel_Click(object sender, RoutedEventArgs e) => _networkCts?.Cancel();
+
+        private void NetworkLabels_Changed(object sender, RoutedEventArgs e)
+        {
+            if (NetworkCanvas == null) return;
+            NetworkCanvas.ShowLabels = NetworkLabelsCheck.IsChecked == true;
+            NetworkCanvas.RefreshNodes();
+        }
+
+        private async Task BuildNetworkAsync()
+        {
+            _networkCts?.Cancel();
+            _networkCts = new CancellationTokenSource();
+            var ct = _networkCts.Token;
+
+            var friends = _entries.Values.Where(x => !x.IsWatchlist).OrderBy(x => x.UserId).ToList();
+            if (friends.Count == 0)
+            {
+                NetworkStatus.Text = "No friends to map yet — add a tracked account first.";
+                return;
+            }
+
+            NetworkBuildBtn.IsEnabled = false;
+            NetworkCancelBtn.Visibility = Visibility.Visible;
+            NetworkProgress.Visibility = Visibility.Visible;
+            NetworkProgress.Value = 0;
+            NetworkInfo.Visibility = Visibility.Collapsed;
+            try
+            {
+                var svc = new NetworkService(_mutuals);
+                var progress = new Progress<(int done, int total)>(t =>
+                {
+                    NetworkProgress.Maximum = t.total;
+                    NetworkProgress.Value = t.done;
+                    NetworkStatus.Text = $"Fetching friend lists… {t.done}/{t.total}";
+                });
+                var graph = await Task.Run(() => svc.BuildAsync(friends, progress, ct), ct);
+                _networkGraph = graph;
+                NetworkCanvas.Graph = graph;
+                NetworkStatus.Text = $"{graph.Nodes.Count} friends · {graph.Edges.Count} connections. " +
+                                     "Click a dot to inspect it — drag to pan, scroll to zoom.";
+            }
+            catch (OperationCanceledException)
+            {
+                NetworkStatus.Text = "Cancelled.";
+            }
+            catch (Exception ex)
+            {
+                NetworkStatus.Text = "Couldn't build the network: " + ex.Message;
+            }
+            finally
+            {
+                NetworkBuildBtn.IsEnabled = true;
+                NetworkCancelBtn.Visibility = Visibility.Collapsed;
+                NetworkProgress.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private void NetworkNode_Selected(int index)
+        {
+            if (_networkGraph == null || index < 0 || index >= _networkGraph.Nodes.Count)
+            {
+                NetworkInfo.Visibility = Visibility.Collapsed;
+                return;
+            }
+            var node = _networkGraph.Nodes[index];
+            if (!_entries.TryGetValue(node.UserId, out var entry))
+            {
+                NetworkInfo.Visibility = Visibility.Collapsed;
+                return;
+            }
+            NetworkInfoLetter.Text = entry.AvatarLetter;
+            NetworkInfoName.Text = entry.DisplayName;
+            NetworkInfoUser.Text = "@" + entry.Username;
+            NetworkInfoStatus.Text = entry.StatusText;
+            NetworkInfoStatus.Foreground = entry.StatusColor;
+            NetworkInfoConns.Text = node.Degree == 1
+                ? "1 connection in your network"
+                : $"{node.Degree} connections in your network";
+            NetworkJoinBtn.Visibility = entry.ShowJoin ? Visibility.Visible : Visibility.Collapsed;
+            NetworkJoinBtn.Tag = entry;
+            NetworkInfo.Visibility = Visibility.Visible;
+        }
+
+        private void RefreshNetworkStatuses()
+        {
+            if (_networkGraph == null || NetworkPage.Visibility != Visibility.Visible) return;
+            foreach (var n in _networkGraph.Nodes)
+                if (_entries.TryGetValue(n.UserId, out var entry))
+                    n.Status = entry.Status;
+            NetworkCanvas.RefreshNodes();
         }
 
         private void ClearActivity_Click(object sender, RoutedEventArgs e)
@@ -502,7 +610,16 @@ namespace Watchblox
 
         private void JoinButton_Click(object sender, RoutedEventArgs e)
         {
-            var entry = (sender as Button)?.Tag as FriendEntry;
+            if ((sender as Button)?.Tag is FriendEntry entry) JoinFriend(entry);
+        }
+
+        private void NetworkJoin_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as Button)?.Tag is FriendEntry entry) JoinFriend(entry);
+        }
+
+        private void JoinFriend(FriendEntry entry)
+        {
             if (entry == null || !entry.PlaceId.HasValue) return;
             string uri = "roblox://placeId=" + entry.PlaceId.Value;
             if (!string.IsNullOrEmpty(entry.GameServerId))

@@ -24,6 +24,13 @@ namespace Watchblox.Services
         public void Forget(long userId) { lock (_lock) _cache.Remove(userId); }
         public void Clear() { lock (_lock) _cache.Clear(); }
 
+        public bool IsCached(long userId)
+        {
+            lock (_lock)
+                return _cache.TryGetValue(userId, out var rec)
+                    && DateTime.UtcNow - rec.fetchedAt < Ttl;
+        }
+
         public async Task<HashSet<long>> GetFriendIdsAsync(long userId)
         {
             lock (_lock)
