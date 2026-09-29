@@ -84,11 +84,12 @@ namespace Watchblox
                 if (n.X > maxX) maxX = n.X;
                 if (n.Y > maxY) maxY = n.Y;
             }
-            const double pad = 70;
+            const double pad = 40;
             minX -= pad; minY -= pad; maxX += pad; maxY += pad;
             double bw = Math.Max(maxX - minX, 1), bh = Math.Max(maxY - minY, 1);
-            _scale = Math.Min(ActualWidth / bw, ActualHeight / bh);
-            _scale = Math.Min(_scale, 2.5);
+            // Never start more zoomed out than 0.75x — a huge graph would be
+            // unreadably tiny. The graph center stays centered; pan to explore.
+            _scale = Math.Clamp(Math.Min(ActualWidth / bw, ActualHeight / bh), 0.75, 2.5);
             _tx = (ActualWidth - bw * _scale) / 2 - minX * _scale;
             _ty = (ActualHeight - bh * _scale) / 2 - minY * _scale;
             _fitted = true;
@@ -220,6 +221,8 @@ namespace Watchblox
             if (_graph == null) return;
 
             bool hasSel = _selected >= 0;
+            // Labels turn to mush when zoomed far out — hide them there.
+            bool showLabels = ShowLabels && _scale > 0.55;
             foreach (var (a, b) in _graph.Edges)
             {
                 bool hi = hasSel && (a == _selected || b == _selected);
@@ -239,7 +242,7 @@ namespace Watchblox
                 if (i == _selected)
                     dc.DrawEllipse(null, new Pen(AccentBrush, 2.5), p, NodeRadius + 5, NodeRadius + 5);
 
-                if (ShowLabels && !string.IsNullOrEmpty(n.DisplayName))
+                if (showLabels && !string.IsNullOrEmpty(n.DisplayName))
                 {
                     var ft = new FormattedText(n.DisplayName, CultureInfo.CurrentCulture,
                         FlowDirection.LeftToRight, LabelFace, 11,

@@ -389,41 +389,10 @@
                                 Style="{StaticResource GhostButton}"
                                 Padding="14,8" Margin="8,0,0,0" Click="NetworkReset_Click"/>
                     </StackPanel>
-                    <Grid Grid.Row="3">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <Border Background="{StaticResource SurfaceBrush}" CornerRadius="10"
-                                BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
-                            <local:NetworkCanvas x:Name="NetworkCanvas"/>
-                        </Border>
-                        <StackPanel x:Name="NetworkInfo" Grid.Column="1" Width="250" Margin="14,0,0,0"
-                                    Visibility="Collapsed" VerticalAlignment="Top">
-                            <Border Width="56" Height="56" CornerRadius="28"
-                                    Background="{StaticResource Surface2Brush}"
-                                    HorizontalAlignment="Left" Margin="0,0,0,10">
-                                <TextBlock x:Name="NetworkInfoLetter" Text="?" FontSize="24"
-                                           Foreground="{StaticResource TextBrush}"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                            <TextBlock x:Name="NetworkInfoName" FontSize="17" FontWeight="SemiBold"
-                                       Foreground="{StaticResource TextBrush}" TextWrapping="Wrap"/>
-                            <TextBlock x:Name="NetworkInfoUser" FontSize="13"
-                                       Foreground="{StaticResource TextDimBrush}" Margin="0,2,0,8"/>
-                            <TextBlock x:Name="NetworkInfoStatus" FontSize="13" Margin="0,0,0,4"/>
-                            <TextBlock x:Name="NetworkInfoConns" FontSize="13"
-                                       Foreground="{StaticResource TextDimBrush}" Margin="0,0,0,12"
-                                       TextWrapping="Wrap"/>
-                            <Button x:Name="NetworkJoinBtn" Content="Join server"
-                                    Style="{StaticResource PrimaryButton}" Visibility="Collapsed"
-                                    Padding="14,8" HorizontalAlignment="Left"
-                                    Click="NetworkJoin_Click"/>
-                            <TextBlock Text="Click another dot to inspect it. Drag to pan, scroll to zoom."
-                                       FontSize="12" Foreground="{StaticResource TextDimBrush}"
-                                       Margin="0,16,0,0" TextWrapping="Wrap"/>
-                        </StackPanel>
-                    </Grid>
+                    <Border Grid.Row="3" Background="{StaticResource SurfaceBrush}" CornerRadius="10"
+                            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                        <local:NetworkCanvas x:Name="NetworkCanvas"/>
+                    </Border>
                 </Grid>
 
                 <!-- Settings page -->

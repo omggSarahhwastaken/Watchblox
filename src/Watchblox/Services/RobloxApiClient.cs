@@ -203,6 +203,67 @@ namespace Watchblox.Services
                 return ids;
             }, "friend list");
 
+        // --- full user profile (bio, join date) ---------------------------------
+        public Task<UserProfile> GetUserProfileAsync(long userId) =>
+            WithRetry(async () =>
+            {
+                var resp = await _http.GetAsync($"https://users.roblox.com/v1/users/{userId}");
+                if (resp.StatusCode == HttpStatusCode.NotFound)
+                    throw new RobloxApiException("Roblox user not found.");
+                resp.EnsureSuccessStatusCode();
+                using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+                var root = doc.RootElement;
+                DateTime created = DateTime.MinValue;
+                if (root.TryGetProperty("created", out var c) && c.ValueKind == JsonValueKind.String)
+                    DateTime.TryParse(c.GetString(), null,
+                        System.Globalization.DateTimeStyles.RoundtripKind, out created);
+                return new UserProfile
+                {
+                    Id = root.GetProperty("id").GetInt64(),
+                    Username = OptString(root, "name"),
+                    DisplayName = OptString(root, "displayName"),
+                    Description = OptString(root, "description"),
+                    Created = created,
+                    HasVerifiedBadge = root.TryGetProperty("hasVerifiedBadge", out var vb)
+                        && vb.ValueKind == JsonValueKind.True
+                };
+            }, "profile");
+
+        // --- groups a user is in (with their role) ---------------------------
+        public Task<List<UserGroupInfo>> GetUserGroupsAsync(long userId) =>
+            WithRetry(async () =>
+            {
+                var list = new List<UserGroupInfo>();
+                string cursor = "";
+                do
+                {
+                    string url = $"https://groups.roblox.com/v2/users/{userId}/groups/roles?limit=100"
+                        + (string.IsNullOrEmpty(cursor) ? "" : "&cursor=" + Uri.EscapeDataString(cursor));
+                    var resp = await _http.GetAsync(url);
+                    resp.EnsureSuccessStatusCode();
+                    using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+                    var root = doc.RootElement;
+                    foreach (var g in root.GetProperty("data").EnumerateArray())
+                    {
+                        var grp = g.GetProperty("group");
+                        var role = g.GetProperty("role");
+                        list.Add(new UserGroupInfo
+                        {
+                            GroupId = grp.GetProperty("id").GetInt64(),
+                            GroupName = OptString(grp, "name"),
+                            MemberCount = grp.TryGetProperty("memberCount", out var mc)
+                                && mc.TryGetInt32(out var m) ? m : 0,
+                            RoleName = OptString(role, "name"),
+                            Rank = role.TryGetProperty("rank", out var r)
+                                && r.TryGetInt32(out var rk) ? rk : 0,
+                        });
+                    }
+                    cursor = OptString(root, "nextPageCursor");
+                } while (!string.IsNullOrEmpty(cursor));
+                list.Sort((a, b) => b.MemberCount.CompareTo(a.MemberCount));
+                return list;
+            }, "groups");
+
         // --- batch ID -> names (chunk 100) -----------------------------------
         public Task<Dictionary<long, NameRecord>> GetNamesAsync(IEnumerable<long> ids) =>
             WithRetry(async () =>

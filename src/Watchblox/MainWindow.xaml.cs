@@ -55,6 +55,7 @@ namespace Watchblox
         private NetworkGraph _networkGraph;
         private CancellationTokenSource _networkCts;
         private bool _networkAutoBuilt;
+        private ProfileWindow _profileWindow;
 
         public MainWindow()
         {
@@ -534,7 +535,6 @@ namespace Watchblox
             NetworkCancelBtn.Visibility = Visibility.Visible;
             NetworkProgress.Visibility = Visibility.Visible;
             NetworkProgress.Value = 0;
-            NetworkInfo.Visibility = Visibility.Collapsed;
             try
             {
                 var svc = new NetworkService(_mutuals);
@@ -548,7 +548,7 @@ namespace Watchblox
                 _networkGraph = graph;
                 NetworkCanvas.Graph = graph;
                 NetworkStatus.Text = $"{graph.Nodes.Count} friends · {graph.Edges.Count} connections. " +
-                                     "Click a dot to inspect it — drag to pan, scroll to zoom.";
+                                     "Click a dot for their profile — drag to pan, scroll to zoom.";
             }
             catch (OperationCanceledException)
             {
@@ -568,28 +568,12 @@ namespace Watchblox
 
         private void NetworkNode_Selected(int index)
         {
-            if (_networkGraph == null || index < 0 || index >= _networkGraph.Nodes.Count)
-            {
-                NetworkInfo.Visibility = Visibility.Collapsed;
-                return;
-            }
+            if (_networkGraph == null || index < 0 || index >= _networkGraph.Nodes.Count) return;
             var node = _networkGraph.Nodes[index];
-            if (!_entries.TryGetValue(node.UserId, out var entry))
-            {
-                NetworkInfo.Visibility = Visibility.Collapsed;
-                return;
-            }
-            NetworkInfoLetter.Text = entry.AvatarLetter;
-            NetworkInfoName.Text = entry.DisplayName;
-            NetworkInfoUser.Text = "@" + entry.Username;
-            NetworkInfoStatus.Text = entry.StatusText;
-            NetworkInfoStatus.Foreground = entry.StatusColor;
-            NetworkInfoConns.Text = node.Degree == 1
-                ? "1 connection in your network"
-                : $"{node.Degree} connections in your network";
-            NetworkJoinBtn.Visibility = entry.ShowJoin ? Visibility.Visible : Visibility.Collapsed;
-            NetworkJoinBtn.Tag = entry;
-            NetworkInfo.Visibility = Visibility.Visible;
+            if (!_entries.TryGetValue(node.UserId, out var entry)) return;
+            if (_profileWindow == null)
+                _profileWindow = new ProfileWindow(_api, _thumbs, JoinFriend) { Owner = this };
+            _profileWindow.ShowProfile(entry, node.Degree);
         }
 
         private void RefreshNetworkStatuses()
@@ -611,11 +595,6 @@ namespace Watchblox
         // ================= join =================
 
         private void JoinButton_Click(object sender, RoutedEventArgs e)
-        {
-            if ((sender as Button)?.Tag is FriendEntry entry) JoinFriend(entry);
-        }
-
-        private void NetworkJoin_Click(object sender, RoutedEventArgs e)
         {
             if ((sender as Button)?.Tag is FriendEntry entry) JoinFriend(entry);
         }
