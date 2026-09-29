@@ -23,11 +23,15 @@
                     Margin="0,0,0,8" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
                 <Grid>
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="5"/>
                         <ColumnDefinition Width="52"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <Grid Width="52" Height="52">
+                    <!-- Presence spine: the card's own color signature. -->
+                    <Rectangle Grid.Column="0" Fill="{Binding StatusColor}"
+                               RadiusX="2.5" RadiusY="2.5" Margin="0,4,0,4"/>
+                    <Grid Grid.Column="1" Width="52" Height="52">
                         <Ellipse Fill="{StaticResource Surface2Brush}"/>
                         <TextBlock Text="{Binding AvatarLetter}" FontSize="20" FontWeight="Bold"
                                    Foreground="{StaticResource AccentBrush}"
@@ -42,14 +46,14 @@
                         <Ellipse Width="14" Height="14" Fill="{Binding StatusColor}"
                                  HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,1,1"/>
                     </Grid>
-                    <StackPanel Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center">
+                    <StackPanel Grid.Column="2" Margin="12,0,8,0" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="{Binding DisplayName}" FontSize="15" FontWeight="SemiBold"
                                        Foreground="{StaticResource TextBrush}"/>
                             <TextBlock Text=" ✓" FontSize="13" Foreground="{StaticResource AccentBrush}"
                                        Visibility="{Binding Verified, Converter={StaticResource BoolToVis}}"
                                        VerticalAlignment="Center"/>
-                            <Border Background="#2a1e3f" CornerRadius="4" Padding="6,2" Margin="8,0,0,0"
+                            <Border Background="#3d2222" CornerRadius="4" Padding="6,2" Margin="8,0,0,0"
                                     Visibility="{Binding IsWatchlist, Converter={StaticResource BoolToVis}}"
                                     VerticalAlignment="Center">
                                 <TextBlock Text="WATCHLIST" FontSize="10" Foreground="{StaticResource AccentBrush}"/>
@@ -65,7 +69,7 @@
                                    Foreground="{StaticResource TextDimBrush}" Margin="0,2,0,0"
                                    Visibility="{Binding GameLineVisible, Converter={StaticResource InverseBoolToVis}}"/>
                     </StackPanel>
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button Content="Join" Style="{StaticResource PrimaryButton}" Padding="18,8"
                                 Visibility="{Binding ShowJoin, Converter={StaticResource BoolToVis}}"
                                 Click="JoinButton_Click" Tag="{Binding}" Margin="0,0,6,0"/>
@@ -338,6 +342,8 @@
                         <CheckBox x:Name="StartWinCheck" Content="Start with Windows"
                                   Checked="Setting_Changed" Unchecked="Setting_Changed"/>
                         <CheckBox x:Name="UpdateCheckBox" Content="Check for updates on launch"
+                                  Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                        <CheckBox x:Name="AutoUpdateCheckBox" Content="Install updates automatically"
                                   Checked="Setting_Changed" Unchecked="Setting_Changed"/>
                         <CheckBox x:Name="TrayCheck" Content="Minimize to tray when closing"
                                   Checked="Setting_Changed" Unchecked="Setting_Changed"/>

@@ -30,6 +30,15 @@ namespace Watchblox.Services
     }
 
     /// <summary>
+    /// A deliberate API answer (private profile, bad request, …), not a
+    /// network problem. Never retried, never rewritten into a generic message.
+    /// </summary>
+    public class RobloxApiException : Exception
+    {
+        public RobloxApiException(string message) : base(message) { }
+    }
+
+    /// <summary>
     /// Read-only Roblox API client. One shared HttpClient, no cookies, no auth.
     /// Every public endpoint used here was verified live without credentials.
     /// </summary>
@@ -61,6 +70,7 @@ namespace Watchblox.Services
                     _backoffSeconds = 0;
                     return result;
                 }
+                catch (RobloxApiException) { throw; }
                 catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests && attempt < 4)
                 {
                     attempt++;
@@ -118,20 +128,22 @@ namespace Watchblox.Services
             {
                 var ids = new List<long>();
                 string cursor = "";
+                int pages = 0;
                 do
                 {
                     string url = $"https://friends.roblox.com/v1/users/{userId}/friends?limit=100"
                         + (string.IsNullOrEmpty(cursor) ? "" : "&cursor=" + Uri.EscapeDataString(cursor));
                     var resp = await _http.GetAsync(url);
                     if (resp.StatusCode == HttpStatusCode.Forbidden)
-                        throw new Exception("This Roblox profile is private — friend list unavailable.");
+                        throw new RobloxApiException("This Roblox profile is private — friend list unavailable.");
                     resp.EnsureSuccessStatusCode();
                     using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
                     var root = doc.RootElement;
                     foreach (var f in root.GetProperty("data").EnumerateArray())
                         if (f.TryGetProperty("id", out var id) && id.TryGetInt64(out var l)) ids.Add(l);
                     cursor = OptString(root, "nextPageCursor");
-                } while (!string.IsNullOrEmpty(cursor) && ids.Count < 1000);
+                    pages++;
+                } while (!string.IsNullOrEmpty(cursor) && ids.Count < 1000 && pages < 12);
                 return ids;
             }, "friend list");
 

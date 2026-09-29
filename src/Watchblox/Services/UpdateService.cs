@@ -80,6 +80,49 @@ namespace Watchblox.Services
             catch { return false; }
         }
 
+        /// <summary>
+        /// Downloads the installer from the update manifest and launches it.
+        /// The installer filename contains "_update" so it auto-closes and
+        /// relaunches the app when done. Returns false if the download failed;
+        /// on success this method does not return to a running app — the
+        /// caller should shut down right after.
+        /// </summary>
+        public async Task<bool> DownloadAndInstallAsync(UpdateInfo info)
+        {
+            if (info == null || string.IsNullOrWhiteSpace(info.Url)) return false;
+            try
+            {
+                string tmp = System.IO.Path.Combine(
+                    System.IO.Path.GetTempPath(), "WatchbloxSetup_update.exe");
+                using (var client = new HttpClient())
+                {
+                    client.Timeout = TimeSpan.FromMinutes(10);
+                    client.DefaultRequestHeaders.UserAgent.ParseAdd("Watchblox");
+                    if (!string.IsNullOrEmpty(info.Encoding) &&
+                        info.Encoding.Equals("base64", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string b64 = await client.GetStringAsync(info.Url);
+                        await System.IO.File.WriteAllBytesAsync(
+                            tmp, Convert.FromBase64String(b64.Trim()));
+                    }
+                    else
+                    {
+                        using (var resp = await client.GetAsync(
+                            info.Url, HttpCompletionOption.ResponseHeadersRead))
+                        {
+                            resp.EnsureSuccessStatusCode();
+                            using (var fs = System.IO.File.Create(tmp))
+                                await resp.Content.CopyToAsync(fs);
+                        }
+                    }
+                }
+                System.Diagnostics.Process.Start(
+                    new System.Diagnostics.ProcessStartInfo(tmp) { UseShellExecute = true });
+                return true;
+            }
+            catch { return false; }
+        }
+
         private static string Normalize(string v)
         {
             var parts = new List<string>(v.Trim().TrimStart('v', 'V').Split('.'));

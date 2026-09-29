@@ -4,15 +4,15 @@
              xmlns:local="clr-namespace:Watchblox"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-        <!-- Palette: dark surfaces, purple neon accent. Only white is text. -->
-        <Color x:Key="Bg">#0f0f14</Color>
-        <Color x:Key="Surface">#16161e</Color>
-        <Color x:Key="Surface2">#1e1e28</Color>
-        <Color x:Key="Border">#2a2a38</Color>
-        <Color x:Key="Accent">#a855f7</Color>
-        <Color x:Key="AccentDim">#7e22ce</Color>
-        <Color x:Key="Text">#e8e8ee</Color>
-        <Color x:Key="TextDim">#9a9aa8</Color>
+        <!-- Palette: Roblox dark theme with Roblox red accent. Only white is text. -->
+        <Color x:Key="Bg">#191b1d</Color>
+        <Color x:Key="Surface">#232527</Color>
+        <Color x:Key="Surface2">#2e3134</Color>
+        <Color x:Key="Border">#3a3d40</Color>
+        <Color x:Key="Accent">#ff3b3b</Color>
+        <Color x:Key="AccentDim">#d32f2f</Color>
+        <Color x:Key="Text">#ffffff</Color>
+        <Color x:Key="TextDim">#b8bebe</Color>
 
         <SolidColorBrush x:Key="BgBrush" Color="{StaticResource Bg}"/>
         <SolidColorBrush x:Key="SurfaceBrush" Color="{StaticResource Surface}"/>
@@ -52,7 +52,7 @@
                     <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
                 </Trigger>
                 <Trigger Property="Tag" Value="Active">
-                    <Setter Property="Background" Value="#2a1e3f"/>
+                    <Setter Property="Background" Value="#3d2222"/>
                     <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
                 </Trigger>
             </Style.Triggers>

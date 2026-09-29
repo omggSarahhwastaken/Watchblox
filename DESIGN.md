@@ -162,13 +162,16 @@ intersection. Friend cap is 1000 (raised 2024), so a full sweep is expensive:
 
 Same visual family as Sarah's Toolkit: dark theme, Minecraft Bold Italic for
 the "Watchblox" title, Minecraft Italic for page headings, Segoe UI for body.
-Accent: Roblox-ish red? No — keep the Toolkit's purple neon identity so the
-two apps feel like siblings. Only white in the UI is text.
+Accent: Roblox red (#FF3B3B) on the Roblox dark theme (#191B1D surfaces) —
+decided 2026-09-28. Only white in the UI is text.
 
 **Layout (original implementation, VRCX-style information layout):**
 - Left sidebar (dark): tracked-user card at top (avatar, display name,
   friend count, status), nav below: Friends / Activity / Watchlist /
-  Settings. Update badge when an update is available.
+  Settings. Update badge when an update is available. Automatic updates are
+  ON by default: on launch the app checks the manifest and, if a newer
+  version exists, downloads the installer and relaunches through it with no
+  clicks needed (toggleable in Settings).
 - Friends page: filter chips + search on top; rows = avatar circle, status
   dot, display name (+ verified check), @username dimmed, game name as
   second line for in-game ("🕹 War Tycoon" — no emoji, use text/icon),
@@ -253,5 +256,5 @@ Single WPF project, `Watchblox/`:
 1. Default poll interval: 60s (safer) or 30s (snappier)?
 2. Toast toggles per event type in MVP, or master switch only?
 3. Keep Phase 2 login on the roadmap, or cut it entirely for now?
-4. Sidebar accent: Toolkit purple, or its own color so the apps are
-   distinguishable at a glance?
+4. Sidebar accent: ~~Toolkit purple, or its own color so the apps are
+   distinguishable at a glance?~~ → Decided: Roblox red, its own identity.

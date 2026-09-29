@@ -10,6 +10,7 @@ namespace Watchblox.Models
         public bool ToastsEnabled { get; set; } = true;
         public bool StartWithWindows { get; set; } = false;
         public bool CheckForUpdatesOnLaunch { get; set; } = true;
+        public bool AutoInstallUpdates { get; set; } = true;
         public bool MinimizeToTray { get; set; } = true;
         public double InterfaceScale { get; set; } = 1.0;
         public List<long> WatchlistIds { get; set; } = new List<long>();

@@ -142,7 +142,7 @@ namespace Watchblox
             if (_pendingOnboard == null) return;
             _settings.Settings.TrackedUserId = _pendingOnboard.Id;
             _settings.Settings.TrackedUsername = _pendingOnboard.Username;
-                        _settings.Settings.HasCompletedOnboarding = true;
+            _settings.Settings.HasCompletedOnboarding = true;
             _settings.Save();
             InitMain();
         }
@@ -186,13 +186,28 @@ namespace Watchblox
             _syncTimer.Start();
 
             SetStatus("Starting…");
-            _ = Task.Run(async () =>
-            {
-                await SyncFriendsAsync();
-                await PollPresenceAsync();
-            });
+            _ = InitDataAsync();
             if (_settings.Settings.CheckForUpdatesOnLaunch)
-                _ = CheckUpdatesAsync(silent: true);
+                _ = CheckForUpdatesAndMaybeInstallAsync();
+        }
+
+        // Runs on the UI synchronization context: every await continuation
+        // comes back to the UI thread, so bound collections are only ever
+        // touched where WPF expects them.
+        private async Task InitDataAsync()
+        {
+            await SyncFriendsAsync();
+            await PollPresenceAsync();
+        }
+
+        private async Task CheckForUpdatesAndMaybeInstallAsync()
+        {
+            await CheckUpdatesAsync(silent: true);
+            if (_pendingUpdate != null && _settings.Settings.AutoInstallUpdates && !_isDownloadingUpdate)
+            {
+                UpdateStatus.Text = "Installing update…";
+                await InstallUpdateAsync(_pendingUpdate);
+            }
         }
 
         private async Task LoadAvatarIntoAsync(long userId, Action<string> set)
@@ -214,6 +229,7 @@ namespace Watchblox
 
         private async Task SyncFriendsAsync()
         {
+            if (_settings.Settings.TrackedUserId == null) return;
             SetStatus("Syncing friends…");
             List<long> ids;
             try
@@ -238,7 +254,7 @@ namespace Watchblox
             var allIds = ids.Concat(_settings.Settings.WatchlistIds).Distinct().ToList();
             await ResolveNamesAsync(allIds);
             await EnsureEntriesAsync(allIds, friendSet);
-            UpdateFriendCount(ids.Count);
+            UpdateSidebarCounts();
             SetStatus($"Synced {ids.Count} friends.");
             _ = PrefetchAvatarsAsync(allIds);
         }
@@ -293,8 +309,14 @@ namespace Watchblox
             catch { }
         }
 
-        private void UpdateFriendCount(int n) =>
-            Dispatcher.Invoke(() => SideUserSub.Text = "@" + _settings.Settings.TrackedUsername + " · " + n + " friends");
+        private void UpdateSidebarCounts()
+        {
+            var friends = _entries.Values.Where(e => !e.IsWatchlist).ToList();
+            int online = friends.Count(e =>
+                e.Status == PresenceType.Online || e.Status == PresenceType.InGame);
+            SideUserSub.Text = "@" + _settings.Settings.TrackedUsername +
+                $" · {friends.Count} friends · {online} online";
+        }
 
         // ================= presence =================
 
@@ -341,7 +363,7 @@ namespace Watchblox
             {
                 if (!_entries.TryGetValue(kv.Key, out var entry)) continue;
                 var p = kv.Value;
-                entry.Status = (PresenceType)p.Type;
+                entry.Status = p.Type >= 0 && p.Type <= 3 ? (PresenceType)p.Type : PresenceType.Offline;
                 string game = p.UniverseId.HasValue && _gameNames.TryGetValue(p.UniverseId.Value, out var gn)
                     ? gn : (p.LastLocation ?? "");
                 entry.GameName = game;
@@ -355,29 +377,33 @@ namespace Watchblox
         {
             Dispatcher.Invoke(async () =>
             {
-                // resolve names first so toasts/activity use real names
-                var unknown = transitions.Select(t => t.UserId)
-                    .Where(id => _names.Get(id) == null).ToList();
-                if (unknown.Count > 0) await ResolveNamesAsync(unknown);
-
-                foreach (var t in transitions)
+                try
                 {
-                    var rec = _names.Get(t.UserId);
-                    string name = rec?.DisplayName ?? ("user" + t.UserId);
-                    var ev = new WbActivityEvent
+                    // resolve names first so toasts/activity use real names
+                    var unknown = transitions.Select(t => t.UserId)
+                        .Where(id => _names.Get(id) == null).ToList();
+                    if (unknown.Count > 0) await ResolveNamesAsync(unknown);
+
+                    foreach (var t in transitions)
                     {
-                        UserId = t.UserId,
-                        DisplayName = name,
-                        Kind = t.Kind,
-                        Text = t.Describe(name),
-                        Time = t.Time
-                    };
-                    _activity.Add(ev);
-                    _activityView.Insert(0, ev);
-                    ActivityEmpty.Visibility = Visibility.Collapsed;
-                    if (_settings.Settings.ToastsEnabled)
-                        ToastService.Show(name, ev.Text);
+                        var rec = _names.Get(t.UserId);
+                        string name = rec?.DisplayName ?? ("user" + t.UserId);
+                        var ev = new WbActivityEvent
+                        {
+                            UserId = t.UserId,
+                            DisplayName = name,
+                            Kind = t.Kind,
+                            Text = t.Describe(name),
+                            Time = t.Time
+                        };
+                        _activity.Add(ev);
+                        _activityView.Insert(0, ev);
+                        ActivityEmpty.Visibility = Visibility.Collapsed;
+                        if (_settings.Settings.ToastsEnabled)
+                            ToastService.Show(name, ev.Text);
+                    }
                 }
+                catch { /* activity/toast path is best-effort; never crash the app */ }
             });
         }
 
@@ -404,6 +430,7 @@ namespace Watchblox
                 .ToList();
             _watchView.Clear();
             foreach (var w in watch) _watchView.Add(w);
+            UpdateSidebarCounts();
         }
 
         private bool MatchesFilter(FriendEntry e) => _filter switch
@@ -476,13 +503,11 @@ namespace Watchblox
             }
             catch
             {
-                // Exact-server join failed; fall back to the game's page.
-                try
-                {
-                    Process.Start(new ProcessStartInfo("https://www.roblox.com/games/" + entry.PlaceId.Value)
-                    { UseShellExecute = true });
-                }
-                catch { ToastService.Show("Watchblox", "Couldn't open Roblox Player."); }
+                // Exact-server launch failed. Watchblox never falls back to a
+                // browser — report it honestly in the app instead.
+                string msg = "Couldn't launch Roblox into that server.";
+                SetStatus(msg);
+                ToastService.Show("Watchblox", msg);
             }
         }
 
@@ -568,6 +593,7 @@ namespace Watchblox
             ToastCheck.IsChecked = s.ToastsEnabled;
             StartWinCheck.IsChecked = s.StartWithWindows;
             UpdateCheckBox.IsChecked = s.CheckForUpdatesOnLaunch;
+            AutoUpdateCheckBox.IsChecked = s.AutoInstallUpdates;
             TrayCheck.IsChecked = s.MinimizeToTray;
             ScaleSlider.Value = s.InterfaceScale * 100;
             ScaleLabel.Text = ((int)(s.InterfaceScale * 100)) + "%";
@@ -595,6 +621,7 @@ namespace Watchblox
             s.ToastsEnabled = ToastCheck.IsChecked == true;
             s.StartWithWindows = StartWinCheck.IsChecked == true;
             s.CheckForUpdatesOnLaunch = UpdateCheckBox.IsChecked == true;
+            s.AutoInstallUpdates = AutoUpdateCheckBox.IsChecked == true;
             s.MinimizeToTray = TrayCheck.IsChecked == true;
             _settings.Save();
             SetStartupRegistration(s.StartWithWindows);
@@ -687,40 +714,18 @@ namespace Watchblox
             _isDownloadingUpdate = true;
             UpdateButton.IsEnabled = false;
             UpdateButton.Content = "Downloading…";
-            try
+            bool ok = await _updates.DownloadAndInstallAsync(info);
+            if (ok)
             {
-                string tmp = Path.Combine(Path.GetTempPath(), "WatchbloxSetup_update.exe");
-                using (var client = new HttpClient())
-                {
-                    client.Timeout = TimeSpan.FromMinutes(10);
-                    client.DefaultRequestHeaders.UserAgent.ParseAdd("Watchblox");
-                    string url = info.Url;
-                    if (!string.IsNullOrEmpty(info.Encoding) &&
-                        info.Encoding.Equals("base64", StringComparison.OrdinalIgnoreCase))
-                    {
-                        string b64 = await client.GetStringAsync(url);
-                        await File.WriteAllBytesAsync(tmp, Convert.FromBase64String(b64.Trim()));
-                    }
-                    else
-                    {
-                        using (var resp = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead))
-                        {
-                            resp.EnsureSuccessStatusCode();
-                            using (var fs = File.Create(tmp))
-                                await resp.Content.CopyToAsync(fs);
-                        }
-                    }
-                }
-                Process.Start(new ProcessStartInfo(tmp) { UseShellExecute = true });
                 _reallyExit = true;
                 Application.Current.Shutdown();
             }
-            catch (Exception ex)
+            else
             {
                 _isDownloadingUpdate = false;
                 UpdateButton.IsEnabled = true;
                 UpdateButton.Content = "Update available — install";
-                UpdateStatus.Text = "Update download failed: " + ex.Message;
+                UpdateStatus.Text = "Update download failed — will try again later.";
             }
         }
 
@@ -770,8 +775,12 @@ namespace Watchblox
             if (_tray != null) _tray.Visible = false;
         }
 
-        private void SetStatus(string msg) =>
-            Dispatcher.Invoke(() => StatusText.Text = msg);
+        private void SetStatus(string msg)
+        {
+            // Best-effort: the dispatcher may be shutting down (e.g. during
+            // an automatic update) when a background continuation reports in.
+            try { Dispatcher.Invoke(() => StatusText.Text = msg); } catch { }
+        }
 
         protected override void OnClosed(EventArgs e)
         {
