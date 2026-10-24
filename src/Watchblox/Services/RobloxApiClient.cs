@@ -264,6 +264,83 @@ namespace Watchblox.Services
                 return list;
             }, "groups");
 
+        // --- games a user created (public) --------------------------------
+        public Task<List<UserGameInfo>> GetUserGamesAsync(long userId) =>
+            WithRetry(async () =>
+            {
+                var list = new List<UserGameInfo>();
+                string cursor = "";
+                do
+                {
+                    string url = $"https://games.roblox.com/v2/users/{userId}/games?limit=50&sortOrder=Desc"
+                        + (string.IsNullOrEmpty(cursor) ? "" : "&cursor=" + Uri.EscapeDataString(cursor));
+                    var resp = await _http.GetAsync(url);
+                    resp.EnsureSuccessStatusCode();
+                    using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+                    var root = doc.RootElement;
+                    foreach (var g in root.GetProperty("data").EnumerateArray())
+                        list.Add(ParseGame(g));
+                    cursor = OptString(root, "nextPageCursor");
+                } while (!string.IsNullOrEmpty(cursor) && list.Count < 200);
+                return list;
+            }, "games");
+
+        // --- games a user favorited (public) -------------------------------
+        public Task<List<UserGameInfo>> GetFavoriteGamesAsync(long userId) =>
+            WithRetry(async () =>
+            {
+                var list = new List<UserGameInfo>();
+                string cursor = "";
+                do
+                {
+                    string url = $"https://games.roblox.com/v2/users/{userId}/favorite/games?limit=50&sortOrder=Desc"
+                        + (string.IsNullOrEmpty(cursor) ? "" : "&cursor=" + Uri.EscapeDataString(cursor));
+                    var resp = await _http.GetAsync(url);
+                    resp.EnsureSuccessStatusCode();
+                    using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+                    var root = doc.RootElement;
+                    foreach (var g in root.GetProperty("data").EnumerateArray())
+                        list.Add(ParseGame(g));
+                    cursor = OptString(root, "nextPageCursor");
+                } while (!string.IsNullOrEmpty(cursor) && list.Count < 200);
+                return list;
+            }, "favorite games");
+
+        private static UserGameInfo ParseGame(JsonElement g)
+        {
+            long? placeId = null;
+            if (g.TryGetProperty("rootPlace", out var rp) && rp.ValueKind == JsonValueKind.Object)
+                placeId = OptLong(rp, "id");
+            long visits = 0;
+            if (g.TryGetProperty("placeVisits", out var pv) && pv.ValueKind == JsonValueKind.Number)
+                pv.TryGetInt64(out visits);
+            return new UserGameInfo
+            {
+                UniverseId = g.TryGetProperty("id", out var id) && id.TryGetInt64(out var u) ? u : 0,
+                Name = OptString(g, "name"),
+                PlaceId = placeId,
+                PlaceVisits = visits
+            };
+        }
+
+        // --- full-body avatar image URL -------------------------------------
+        public async Task<string> GetFullBodyAvatarUrlAsync(long userId)
+        {
+            try
+            {
+                var resp = await _http.GetAsync(
+                    $"https://thumbnails.roblox.com/v1/users/avatar?userIds={userId}" +
+                    "&size=720x720&format=Png&isCircular=false");
+                resp.EnsureSuccessStatusCode();
+                using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+                foreach (var t in doc.RootElement.GetProperty("data").EnumerateArray())
+                    if (OptString(t, "state") == "Completed")
+                        return OptString(t, "imageUrl");
+            }
+            catch { }
+            return "";
+        }
+
         // --- batch ID -> names (chunk 100) -----------------------------------
         public Task<Dictionary<long, NameRecord>> GetNamesAsync(IEnumerable<long> ids) =>
             WithRetry(async () =>

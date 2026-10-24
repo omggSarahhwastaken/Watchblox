@@ -58,6 +58,7 @@ namespace Watchblox.Models
                 Raise(nameof(ShowJoin));
                 Raise(nameof(GameLine));
                 Raise(nameof(GameLineVisible));
+                Raise(nameof(LastSeenVisible));
             }
         }
 
@@ -87,6 +88,15 @@ namespace Watchblox.Models
 
         public string MutualText => _mutualCount == 1 ? "1 mutual friend" : $"{_mutualCount} mutual friends";
         public bool MutualVisible => _mutualCount >= 0;
+
+        // Last-seen line, shown on offline rows once history exists.
+        private string _lastSeenText = "";
+        public string LastSeenText
+        {
+            get => _lastSeenText;
+            set { _lastSeenText = value; Raise(nameof(LastSeenText)); Raise(nameof(LastSeenVisible)); }
+        }
+        public bool LastSeenVisible => _status == PresenceType.Offline && !string.IsNullOrEmpty(_lastSeenText);
 
         public string StatusText => _status switch
         {

@@ -28,6 +28,7 @@ namespace Watchblox
         private NameCache _names;
         private ThumbnailCache _thumbs;
         private ActivityStore _activity;
+        private PresenceHistoryService _history;
         private PresenceMonitor _monitor;
         private UpdateService _updates;
         private MutualService _mutuals;
@@ -73,6 +74,7 @@ namespace Watchblox
             _names = new NameCache();
             _thumbs = new ThumbnailCache(_api);
             _activity = new ActivityStore();
+            _history = new PresenceHistoryService();
             _monitor = new PresenceMonitor();
             _updates = new UpdateService();
             _monitor.Transitions += OnTransitions;
@@ -386,6 +388,20 @@ namespace Watchblox
                 entry.GameName = game;
                 entry.PlaceId = p.PlaceId;
                 entry.GameServerId = p.GameId ?? "";
+                // Feed the history service: peak hours, most-played game,
+                // and last-seen all come from these samples.
+                _history.Record(kv.Key, entry.Status, p.UniverseId, DateTime.Now);
+                if (entry.Status == PresenceType.Offline)
+                {
+                    var last = _history.LastSeenLocal(kv.Key);
+                    entry.LastSeenText = last == null
+                        ? ""
+                        : "Last seen " + PresenceHistoryService.FormatLastSeenShort(last.Value);
+                }
+                else
+                {
+                    entry.LastSeenText = "";
+                }
             }
             RefreshDisplay();
             RefreshNetworkStatuses();
@@ -573,16 +589,69 @@ namespace Watchblox
             if (_networkGraph == null || index < 0 || index >= _networkGraph.Nodes.Count) return;
             var node = _networkGraph.Nodes[index];
             if (!_entries.TryGetValue(node.UserId, out var entry)) return;
+            OpenProfile(entry);
+        }
+
+        // Every profile entry point funnels through here: network dots,
+        // friend/watchlist/mutual rows, and activity rows.
+        private void OpenProfile(FriendEntry entry)
+        {
             try
             {
                 if (_profileWindow == null)
-                    _profileWindow = new ProfileWindow(_api, _thumbs, JoinFriend) { Owner = this };
-                _profileWindow.ShowProfile(entry, node.Degree);
+                    _profileWindow = new ProfileWindow(_api, _thumbs, JoinFriend, _history, _activity)
+                        { Owner = this };
+                int connections = -1;
+                if (_networkGraph != null)
+                {
+                    var node = _networkGraph.Nodes.FirstOrDefault(n => n.UserId == entry.UserId);
+                    if (node != null) connections = node.Degree;
+                }
+                _profileWindow.ShowProfile(entry, connections);
             }
             catch (Exception ex)
             {
                 SetStatus("Couldn't open profile: " + ex.Message);
             }
+        }
+
+        private void FriendRow_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            // Join/Remove buttons inside the card handle their own clicks.
+            if (IsClickOnButton(e.OriginalSource as DependencyObject)) return;
+            if ((sender as FrameworkElement)?.DataContext is FriendEntry entry)
+                OpenProfile(entry);
+        }
+
+        private void ActivityRow_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.DataContext is not WbActivityEvent ev) return;
+            if (_entries.TryGetValue(ev.UserId, out var entry))
+            {
+                OpenProfile(entry);
+                return;
+            }
+            // Not a tracked friend (e.g. unfriended since): open from the
+            // activity record's own names.
+            var rec = _names.Get(ev.UserId);
+            OpenProfile(new FriendEntry
+            {
+                UserId = ev.UserId,
+                Username = ev.Username,
+                DisplayName = ev.DisplayName,
+                Verified = rec?.Verified ?? false
+            });
+        }
+
+        private static bool IsClickOnButton(DependencyObject source)
+        {
+            var current = source;
+            while (current != null)
+            {
+                if (current is Button) return true;
+                current = System.Windows.Media.VisualTreeHelper.GetParent(current);
+            }
+            return false;
         }
 
         private void RefreshNetworkStatuses()
@@ -1070,6 +1139,7 @@ namespace Watchblox
                 // Really exiting: flush settings so a toggle changed moments
                 // before close can never be lost.
                 _settings.Save();
+                _history?.Save();
                 if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
             }
         }

@@ -21,7 +21,8 @@
 
         <DataTemplate x:Key="FriendRowTemplate">
             <Border Background="{StaticResource SurfaceBrush}" CornerRadius="12" Padding="12"
-                    Margin="0,0,0,8" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                    Margin="0,0,0,8" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                    Cursor="Hand" ToolTip="Click to view profile" MouseLeftButtonUp="FriendRow_Click">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="5"/>
@@ -72,6 +73,9 @@
                         <TextBlock Text="{Binding StatusText}" FontSize="13"
                                    Foreground="{StaticResource TextDimBrush}" Margin="0,2,0,0"
                                    Visibility="{Binding GameLineVisible, Converter={StaticResource InverseBoolToVis}}"/>
+                        <TextBlock Text="{Binding LastSeenText}" FontSize="12"
+                                   Foreground="{StaticResource TextDimBrush}" Margin="0,2,0,0"
+                                   Visibility="{Binding LastSeenVisible, Converter={StaticResource BoolToVis}}"/>
                     </StackPanel>
                     <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
                         <Button Content="Join" Style="{StaticResource PrimaryButton}" Padding="18,8"
@@ -87,7 +91,8 @@
 
         <DataTemplate x:Key="ActivityRowTemplate">
             <Border Background="{StaticResource SurfaceBrush}" CornerRadius="10" Padding="12,10"
-                    Margin="0,0,0,6" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1">
+                    Margin="0,0,0,6" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                    Cursor="Hand" ToolTip="Click to view profile" MouseLeftButtonUp="ActivityRow_Click">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="12"/>
