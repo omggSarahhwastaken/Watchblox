@@ -422,6 +422,9 @@
                                   Checked="Setting_Changed" Unchecked="Setting_Changed"/>
                         <CheckBox x:Name="StartWinCheck" Content="Start with Windows"
                                   Checked="Setting_Changed" Unchecked="Setting_Changed"/>
+                        <CheckBox x:Name="StartMinCheck" Content="Start minimized"
+                                  ToolTip="When starting with Windows, open minimized in the taskbar instead of popping up."
+                                  Checked="Setting_Changed" Unchecked="Setting_Changed"/>
                         <CheckBox x:Name="UpdateCheckBox" Content="Check for updates on launch"
                                   Checked="Setting_Changed" Unchecked="Setting_Changed"/>
                         <CheckBox x:Name="AutoUpdateCheckBox" Content="Install updates automatically"

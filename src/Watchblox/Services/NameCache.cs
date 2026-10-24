@@ -43,7 +43,23 @@ namespace Watchblox.Services
             return r;
         }
 
-        public void Put(NameRecord r) => _map[r.Id] = r;
+        // Names only come from friends/mutuals/activity, but never let the
+        // cache grow without bound: evict the stalest entries past the cap.
+        private const int Cap = 5000;
+
+        public void Put(NameRecord r)
+        {
+            _map[r.Id] = r;
+            if (_map.Count > Cap)
+            {
+                foreach (var id in _map.Values
+                    .OrderBy(v => v.ResolvedAtUnix)
+                    .Take(_map.Count - Cap)
+                    .Select(v => v.Id)
+                    .ToList())
+                    _map.Remove(id);
+            }
+        }
 
         public List<long> MissingOrStale(IEnumerable<long> ids)
         {

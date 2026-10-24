@@ -58,10 +58,41 @@ namespace Watchblox
         private bool _networkAutoBuilt;
         private ProfileWindow _profileWindow;
 
+        // Lean mode: true while the window is minimized to the taskbar,
+        // hidden to the tray, or launched minimized. While true, only
+        // tracking runs (presence polls, activity log, history, toasts,
+        // friend-list sync). Display work, avatar downloads, mutual sweeps
+        // and update checks sleep until the window returns; deferred work
+        // is flagged, never dropped.
+        private bool _inBackground;
+        private bool _displayDirty;
+        private bool _updateCheckPending;
+
+        private bool IsBackgroundMode => _inBackground;
+
         public MainWindow()
         {
             InitializeComponent();
+            // Startup launches (Run key with --minimized) open minimized in
+            // the taskbar instead of popping up: the app tracks and logs
+            // quietly while Discord/Roblox/the browser own the screen.
+            // Setting this before first show means no flash of the window.
+            if (Environment.GetCommandLineArgs().Skip(1)
+                .Any(a => a.Equals("--minimized", StringComparison.OrdinalIgnoreCase)))
+            {
+                WindowState = WindowState.Minimized;
+                _inBackground = true;
+            }
             Closing += MainWindow_Closing;
+            StateChanged += (s, e) =>
+            {
+                if (WindowState == WindowState.Minimized) _inBackground = true;
+                else OnReturnedToForeground();
+            };
+            IsVisibleChanged += (s, e) =>
+            {
+                if (IsVisible && WindowState != WindowState.Minimized) OnReturnedToForeground();
+            };
 
             VersionText.Text = "v" + (Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.0.0");
 
@@ -187,6 +218,9 @@ namespace Watchblox
             ActivityEmpty.Visibility = _activityView.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
             ApplySettingsToUi();
+            // Keep the Run entry matching the settings (self-healing if it
+            // was removed, and registers fresh installs whose default is on).
+            SetStartupRegistration(_settings.Settings.StartWithWindows, _settings.Settings.StartMinimized);
             SetupTray();
             NetworkCanvas.NodeSelected += NetworkNode_Selected;
             FilterChip_Click(ChipAll, new RoutedEventArgs());
@@ -205,7 +239,31 @@ namespace Watchblox
             SetStatus("Starting…");
             _ = InitDataAsync();
             if (_settings.Settings.CheckForUpdatesOnLaunch)
-                _ = CheckForUpdatesAndMaybeInstallAsync();
+            {
+                // Update checks are extra work: a minimized launch defers
+                // them until the window is actually opened.
+                if (_inBackground) _updateCheckPending = true;
+                else _ = CheckForUpdatesAndMaybeInstallAsync();
+            }
+        }
+
+        // Deferred work runs once, the first time the window returns.
+        private void OnReturnedToForeground()
+        {
+            if (!_inBackground || !_initialized) return;
+            _inBackground = false;
+            if (_displayDirty)
+            {
+                _displayDirty = false;
+                RefreshDisplay();
+                RefreshNetworkStatuses();
+            }
+            if (_updateCheckPending)
+            {
+                _updateCheckPending = false;
+                if (_settings.Settings.CheckForUpdatesOnLaunch)
+                    _ = CheckForUpdatesAndMaybeInstallAsync();
+            }
         }
 
         // Runs on the UI synchronization context: every await continuation
@@ -314,6 +372,8 @@ namespace Watchblox
 
         private async Task PrefetchAvatarsAsync(List<long> ids)
         {
+            // Avatars are display-only: never download them while minimized.
+            if (IsBackgroundMode) return;
             try
             {
                 var urls = await _api.GetAvatarUrlsAsync(ids);
@@ -374,6 +434,9 @@ namespace Watchblox
                 {
                     var names = await _api.GetGameNamesAsync(universeIds);
                     foreach (var kv in names) _gameNames[kv.Key] = kv.Value;
+                    // Game names re-resolve on demand, so drop the whole map
+                    // rather than letting it grow forever.
+                    if (_gameNames.Count > 5000) _gameNames.Clear();
                 }
                 catch { }
             }
@@ -403,8 +466,15 @@ namespace Watchblox
                     entry.LastSeenText = "";
                 }
             }
-            RefreshDisplay();
-            RefreshNetworkStatuses();
+            // Display rebuilds are the expensive part of a poll (list
+            // virtualization, bindings, layout). Minimized, nobody sees
+            // them: defer one refresh until the window returns.
+            if (IsBackgroundMode) _displayDirty = true;
+            else
+            {
+                RefreshDisplay();
+                RefreshNetworkStatuses();
+            }
         }
 
         private void OnTransitions(List<PresenceTransition> transitions)
@@ -656,6 +726,7 @@ namespace Watchblox
 
         private void RefreshNetworkStatuses()
         {
+            if (IsBackgroundMode) return;
             if (_networkGraph == null || NetworkPage.Visibility != Visibility.Visible) return;
             foreach (var n in _networkGraph.Nodes)
                 if (_entries.TryGetValue(n.UserId, out var entry))
@@ -778,6 +849,7 @@ namespace Watchblox
                     PollCombo.SelectedItem = item;
             ToastCheck.IsChecked = s.ToastsEnabled;
             StartWinCheck.IsChecked = s.StartWithWindows;
+            StartMinCheck.IsChecked = s.StartMinimized;
             UpdateCheckBox.IsChecked = s.CheckForUpdatesOnLaunch;
             AutoUpdateCheckBox.IsChecked = s.AutoInstallUpdates;
             TrayCheck.IsChecked = s.MinimizeToTray;
@@ -806,12 +878,13 @@ namespace Watchblox
             var s = _settings.Settings;
             s.ToastsEnabled = ToastCheck.IsChecked == true;
             s.StartWithWindows = StartWinCheck.IsChecked == true;
+            s.StartMinimized = StartMinCheck.IsChecked == true;
             s.CheckForUpdatesOnLaunch = UpdateCheckBox.IsChecked == true;
             s.AutoInstallUpdates = AutoUpdateCheckBox.IsChecked == true;
             s.MinimizeToTray = TrayCheck.IsChecked == true;
             if (!_settings.Save())
                 SetStatus("Couldn't save settings — the change may not stick after restart.");
-            SetStartupRegistration(s.StartWithWindows);
+            SetStartupRegistration(s.StartWithWindows, s.StartMinimized);
         }
 
         private void ScaleSlider_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -830,7 +903,7 @@ namespace Watchblox
             RootGrid.LayoutTransform = new ScaleTransform(fraction, fraction);
         }
 
-        private void SetStartupRegistration(bool enable)
+        private void SetStartupRegistration(bool enable, bool minimized)
         {
             try
             {
@@ -839,7 +912,11 @@ namespace Watchblox
                 {
                     if (key == null) return;
                     if (enable)
-                        key.SetValue("Watchblox", "\"" + Process.GetCurrentProcess().MainModule.FileName + "\"");
+                    {
+                        string value = "\"" + Process.GetCurrentProcess().MainModule.FileName + "\"";
+                        if (minimized) value += " --minimized";
+                        key.SetValue("Watchblox", value);
+                    }
                     else
                         key.DeleteValue("Watchblox", false);
                 }
@@ -1027,7 +1104,8 @@ namespace Watchblox
         // hammering the API.
         private async Task SweepMutualsAsync()
         {
-            if (_sweeping) return;
+            // Mutual badges are display-only: never warm them while minimized.
+            if (_sweeping || IsBackgroundMode) return;
             _sweeping = true;
             try
             {
@@ -1131,6 +1209,7 @@ namespace Watchblox
             if (!_reallyExit && _initialized && _settings.Settings.MinimizeToTray)
             {
                 e.Cancel = true;
+                _inBackground = true;
                 Hide();
                 if (_tray != null) _tray.Visible = true;
             }
@@ -1150,6 +1229,7 @@ namespace Watchblox
             WindowState = WindowState.Normal;
             Activate();
             if (_tray != null) _tray.Visible = false;
+            OnReturnedToForeground();
         }
 
         private void SetStatus(string msg)

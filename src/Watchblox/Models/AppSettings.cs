@@ -8,7 +8,8 @@ namespace Watchblox.Models
         public string TrackedUsername { get; set; } = "";
         public int PollIntervalSeconds { get; set; } = 60;
         public bool ToastsEnabled { get; set; } = true;
-        public bool StartWithWindows { get; set; } = false;
+        public bool StartWithWindows { get; set; } = true;
+        public bool StartMinimized { get; set; } = true;
         public bool CheckForUpdatesOnLaunch { get; set; } = true;
         public bool AutoInstallUpdates { get; set; } = true;
         public bool MinimizeToTray { get; set; } = true;
