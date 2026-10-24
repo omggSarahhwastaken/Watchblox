@@ -54,9 +54,12 @@ namespace Watchblox.Services
         public async Task<List<PresenceTransition>> PollAsync(RobloxApiClient api, IEnumerable<long> ids)
         {
             var transitions = new List<PresenceTransition>();
+            var requested = new HashSet<long>(ids);
             var infos = await api.GetPresenceAsync(ids);
+            var returned = new HashSet<long>();
             foreach (var p in infos)
             {
+                returned.Add(p.UserId);
                 if (_last.TryGetValue(p.UserId, out var old))
                 {
                     var t = Diff(old, p);
@@ -74,6 +77,22 @@ namespace Watchblox.Services
                 }
                 _last[p.UserId] = p;
             }
+            // Requested ids missing from the response must not keep a stale
+            // online status: mark them offline (emitting a transition if
+            // they were online), instead of leaving the last status forever.
+            foreach (var id in requested)
+            {
+                if (returned.Contains(id)) continue;
+                if (_last.TryGetValue(id, out var old) && old.Type != 0)
+                {
+                    var t = Diff(old, new PresenceInfo { UserId = id, Type = 0 });
+                    if (t != null) transitions.Add(t);
+                    _last[id] = new PresenceInfo { UserId = id, Type = 0 };
+                }
+            }
+            // Prune ids no longer requested, so dropped users never linger.
+            foreach (var id in _last.Keys.ToList())
+                if (!requested.Contains(id)) _last.Remove(id);
             _seeded = true;
             if (transitions.Count > 0) Transitions?.Invoke(transitions);
             return transitions;
@@ -96,5 +115,14 @@ namespace Watchblox.Services
         }
 
         public void Forget(long userId) => _last.Remove(userId);
+
+        /// <summary>Clears all tracked state (e.g. on account switch), so
+        /// the next poll seeds silently instead of firing "came online"
+        /// transitions for the new account's friends.</summary>
+        public void Clear()
+        {
+            _last.Clear();
+            _seeded = false;
+        }
     }
 }

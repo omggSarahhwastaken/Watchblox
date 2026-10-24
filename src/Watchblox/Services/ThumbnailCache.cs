@@ -20,7 +20,11 @@ namespace Watchblox.Services
         public string GetPath(long userId)
         {
             string p = Path.Combine(_dir, userId + ".png");
-            return File.Exists(p) ? p : "";
+            // A 0-byte file is a torn write, not a valid avatar: treat it
+            // as missing so it re-downloads instead of staying broken forever.
+            if (!File.Exists(p)) return "";
+            try { if (new FileInfo(p).Length == 0) return ""; } catch { return ""; }
+            return p;
         }
 
         public async Task<string> EnsureAsync(long userId, string url)
@@ -31,8 +35,11 @@ namespace Watchblox.Services
             try
             {
                 byte[] bytes = await _api.DownloadBytesAsync(url);
+                if (bytes == null || bytes.Length == 0) return "";
                 string p = Path.Combine(_dir, userId + ".png");
-                await File.WriteAllBytesAsync(p, bytes);
+                string tmp = Path.Combine(_dir, userId + "." + Guid.NewGuid().ToString("N") + ".tmp");
+                await File.WriteAllBytesAsync(tmp, bytes);
+                File.Move(tmp, p, overwrite: true);
                 return p;
             }
             catch { return ""; }

@@ -67,6 +67,8 @@ namespace Watchblox
         private bool _inBackground;
         private bool _displayDirty;
         private bool _updateCheckPending;
+        private bool _applyingSettings;
+        private long _mutualLoadToken;
 
         private bool IsBackgroundMode => _inBackground;
 
@@ -222,6 +224,7 @@ namespace Watchblox
             // was removed, and registers fresh installs whose default is on).
             SetStartupRegistration(_settings.Settings.StartWithWindows, _settings.Settings.StartMinimized);
             SetupTray();
+            NetworkCanvas.NodeSelected -= NetworkNode_Selected;
             NetworkCanvas.NodeSelected += NetworkNode_Selected;
             FilterChip_Click(ChipAll, new RoutedEventArgs());
             _ = RestoreSessionAsync();
@@ -294,7 +297,7 @@ namespace Watchblox
                 string path = await _thumbs.EnsureAsync(userId, url);
                 Dispatcher.Invoke(() => set(string.IsNullOrEmpty(path) ? null : path));
             }
-            catch { Dispatcher.Invoke(() => set(null)); }
+            catch { try { Dispatcher.Invoke(() => set(null)); } catch { } }
         }
 
         private static string AvatarLetter(string name) =>
@@ -466,6 +469,9 @@ namespace Watchblox
                     entry.LastSeenText = "";
                 }
             }
+            // Once per poll (not once per record): persist history at most
+            // every ~10 polls, instead of rewriting the file ~N/10 times.
+            _history.FlushIfDue();
             // Display rebuilds are the expensive part of a poll (list
             // virtualization, bindings, layout). Minimized, nobody sees
             // them: defer one refresh until the window returns.
@@ -843,27 +849,35 @@ namespace Watchblox
 
         private void ApplySettingsToUi()
         {
-            var s = _settings.Settings;
-            foreach (ComboBoxItem item in PollCombo.Items)
-                if ((item.Tag as string) == s.PollIntervalSeconds.ToString())
-                    PollCombo.SelectedItem = item;
-            ToastCheck.IsChecked = s.ToastsEnabled;
-            StartWinCheck.IsChecked = s.StartWithWindows;
-            StartMinCheck.IsChecked = s.StartMinimized;
-            UpdateCheckBox.IsChecked = s.CheckForUpdatesOnLaunch;
-            AutoUpdateCheckBox.IsChecked = s.AutoInstallUpdates;
-            TrayCheck.IsChecked = s.MinimizeToTray;
-            ScaleSlider.Value = s.InterfaceScale * 100;
-            ScaleLabel.Text = ((int)(s.InterfaceScale * 100)) + "%";
-            ApplyScale(s.InterfaceScale);
-            TrackedLabel.Text = "@" + s.TrackedUsername + "  (" + _trackedDisplayName + ")";
-            if (_settings.ConfigBroken)
-                SetStatus("Settings file was unreadable — loaded backup/defaults.");
+            // Programmatic IsChecked/SelectedItem/Value sets fire the same
+            // change handlers as user edits; suppress them here so launch
+            // doesn't re-save partially applied settings or flap the Run key.
+            _applyingSettings = true;
+            try
+            {
+                var s = _settings.Settings;
+                foreach (ComboBoxItem item in PollCombo.Items)
+                    if ((item.Tag as string) == s.PollIntervalSeconds.ToString())
+                        PollCombo.SelectedItem = item;
+                ToastCheck.IsChecked = s.ToastsEnabled;
+                StartWinCheck.IsChecked = s.StartWithWindows;
+                StartMinCheck.IsChecked = s.StartMinimized;
+                UpdateCheckBox.IsChecked = s.CheckForUpdatesOnLaunch;
+                AutoUpdateCheckBox.IsChecked = s.AutoInstallUpdates;
+                TrayCheck.IsChecked = s.MinimizeToTray;
+                ScaleSlider.Value = s.InterfaceScale * 100;
+                ScaleLabel.Text = ((int)(s.InterfaceScale * 100)) + "%";
+                ApplyScale(s.InterfaceScale);
+                TrackedLabel.Text = "@" + s.TrackedUsername + "  (" + _trackedDisplayName + ")";
+                if (_settings.ConfigBroken)
+                    SetStatus("Settings file was unreadable — loaded backup/defaults.");
+            }
+            finally { _applyingSettings = false; }
         }
 
         private void PollCombo_Changed(object sender, SelectionChangedEventArgs e)
         {
-            if (!_initialized || PollCombo.SelectedItem is not ComboBoxItem item) return;
+            if (!_initialized || _applyingSettings || PollCombo.SelectedItem is not ComboBoxItem item) return;
             if (int.TryParse(item.Tag as string, out int secs))
             {
                 _settings.Settings.PollIntervalSeconds = secs;
@@ -874,7 +888,7 @@ namespace Watchblox
 
         private void Setting_Changed(object sender, RoutedEventArgs e)
         {
-            if (!_initialized) return;
+            if (!_initialized || _applyingSettings) return;
             var s = _settings.Settings;
             s.ToastsEnabled = ToastCheck.IsChecked == true;
             s.StartWithWindows = StartWinCheck.IsChecked == true;
@@ -889,7 +903,7 @@ namespace Watchblox
 
         private void ScaleSlider_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
-            if (!_initialized) return;
+            if (!_initialized || _applyingSettings) return;
             int pct = (int)ScaleSlider.Value;
             ScaleLabel.Text = pct + "%";
             double frac = pct / 100.0;
@@ -936,6 +950,19 @@ namespace Watchblox
             _watchView.Clear();
             _mutualView.Clear();
             _mutuals.Clear();
+            // Don't carry the old account's graph or presence state into
+            // the new account: the tray icon and network subscription are
+            // also re-created on the next InitMain, so drop the old ones
+            // here rather than duplicating them.
+            _networkGraph = null;
+            if (NetworkCanvas != null) NetworkCanvas.Graph = null;
+            _monitor.Clear();
+            if (_tray != null)
+            {
+                try { _tray.Visible = false; _tray.Dispose(); } catch { }
+                _tray = null;
+            }
+            if (NetworkCanvas != null) NetworkCanvas.NodeSelected -= NetworkNode_Selected;
             MutualPicker.Items.Clear();
             MutualHeader.Text = "";
             MutualEmpty.Text = "Pick a friend above to see who you both know.";
@@ -1062,6 +1089,9 @@ namespace Watchblox
 
         private async Task LoadMutualsAsync(long userId)
         {
+            // Generation token: picking friend B while A's fetch is still
+            // in flight must not merge A's list into B's view.
+            long token = ++_mutualLoadToken;
             _mutualView.Clear();
             MutualEmpty.Visibility = Visibility.Collapsed;
             MutualHeader.Text = "Loading…";
@@ -1070,7 +1100,9 @@ namespace Watchblox
                 var myIds = new HashSet<long>(
                     _entries.Values.Where(x => !x.IsWatchlist).Select(x => x.UserId));
                 var mutualIds = await _mutuals.GetMutualIdsAsync(userId, myIds);
+                if (token != _mutualLoadToken) return;
                 await ResolveNamesAsync(mutualIds);
+                if (token != _mutualLoadToken) return;
                 if (_entries.TryGetValue(userId, out var picked)) picked.MutualCount = mutualIds.Count;
                 foreach (var id in mutualIds)
                 {
@@ -1089,10 +1121,11 @@ namespace Watchblox
                     MutualEmpty.Text = "No mutual friends found.";
                     MutualEmpty.Visibility = Visibility.Visible;
                 }
-                _ = PrefetchAvatarsAsync(mutualIds);
+                if (token == _mutualLoadToken) _ = PrefetchAvatarsAsync(mutualIds);
             }
             catch (Exception ex)
             {
+                if (token != _mutualLoadToken) return;
                 MutualHeader.Text = "";
                 MutualEmpty.Text = "Couldn't load mutuals: " + ex.Message;
                 MutualEmpty.Visibility = Visibility.Visible;
@@ -1184,6 +1217,12 @@ namespace Watchblox
 
         private void SetupTray()
         {
+            // Re-init (account switch) must not orphan the old icon.
+            if (_tray != null)
+            {
+                try { _tray.Visible = false; _tray.Dispose(); } catch { }
+                _tray = null;
+            }
             try
             {
                 string iconPath = Path.Combine(
@@ -1211,6 +1250,9 @@ namespace Watchblox
                 e.Cancel = true;
                 _inBackground = true;
                 Hide();
+                // Hiding an owner does not hide owned windows: the profile
+                // window would otherwise stay on screen with no main window.
+                _profileWindow?.Hide();
                 if (_tray != null) _tray.Visible = true;
             }
             else
@@ -1219,6 +1261,15 @@ namespace Watchblox
                 // before close can never be lost.
                 _settings.Save();
                 _history?.Save();
+                // The profile window's Closing handler normally vetoes
+                // close (it hides instead); allow it to close for real
+                // here, or the app would survive headless with no main
+                // window and no tray icon.
+                if (_profileWindow != null)
+                {
+                    _profileWindow.AllowClose = true;
+                    try { _profileWindow.Close(); } catch { }
+                }
                 if (_tray != null) { _tray.Visible = false; _tray.Dispose(); }
             }
         }

@@ -52,7 +52,13 @@ namespace Watchblox.Services
 
         private void Save()
         {
-            try { File.WriteAllText(_path, JsonSerializer.Serialize(_events)); }
+            try
+            {
+                string tmp = _path + ".tmp";
+                File.WriteAllText(tmp, JsonSerializer.Serialize(_events));
+                if (File.Exists(_path)) File.Replace(tmp, _path, null);
+                else File.Move(tmp, _path);
+            }
             catch { }
         }
     }

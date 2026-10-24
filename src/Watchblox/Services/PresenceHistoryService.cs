@@ -44,6 +44,8 @@ namespace Watchblox.Services
                 if (data == null) return;
                 foreach (var kv in data)
                 {
+                    // One bad (null) entry must not discard every user's history.
+                    if (kv.Value == null) continue;
                     // Guard against corrupt/short arrays from older writes.
                     if (kv.Value.Online == null || kv.Value.Online.Length != Buckets) kv.Value.Online = new int[Buckets];
                     if (kv.Value.Total == null || kv.Value.Total.Length != Buckets) kv.Value.Total = new int[Buckets];
@@ -56,9 +58,24 @@ namespace Watchblox.Services
 
         public void Save()
         {
-            try { File.WriteAllText(_path, JsonSerializer.Serialize(_users)); }
+            try
+            {
+                string tmp = _path + ".tmp";
+                File.WriteAllText(tmp, JsonSerializer.Serialize(_users));
+                if (File.Exists(_path)) File.Replace(tmp, _path, null);
+                else File.Move(tmp, _path);
+            }
             catch { }
             _pollsSinceSave = 0;
+        }
+
+        /// <summary>
+        /// Called once per presence poll (not once per record): persists
+        /// at most every ~10 polls; exit always flushes via Save().
+        /// </summary>
+        public void FlushIfDue()
+        {
+            if (++_pollsSinceSave >= 10) Save();
         }
 
         /// <summary>Record one presence poll for one user.</summary>
@@ -81,8 +98,9 @@ namespace Watchblox.Services
                     h.Games[universeId.Value] = n + 1;
                 }
             }
-            // Persist at most every ~10 polls; exit always flushes.
-            if (++_pollsSinceSave >= 10) Save();
+            // No save here: Record runs once per friend per poll, so saving
+            // here rewrote the whole file ~N/10 times per poll. The caller
+            // flushes once per poll via FlushIfDue(); exit flushes via Save().
         }
 
         public UserHistory Get(long userId) =>

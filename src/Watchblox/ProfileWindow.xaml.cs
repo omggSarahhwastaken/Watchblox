@@ -22,6 +22,12 @@ namespace Watchblox
         private FriendEntry _entry;
         private long _loadToken;
 
+        /// <summary>Set by the main window when the app is really exiting:
+        /// only then may this reusable window actually close instead of
+        /// hiding. Without this, a real exit leaves a headless process
+        /// running with no main window and no tray icon.</summary>
+        public bool AllowClose { get; set; }
+
         public ProfileWindow(RobloxApiClient api, ThumbnailCache thumbs, Action<FriendEntry> onJoin,
             PresenceHistoryService history, ActivityStore activity)
         {
@@ -35,7 +41,7 @@ namespace Watchblox
             // X button must hide, not destroy, it. Show() on a closed Window
             // throws InvalidOperationException (crashed the app on the second
             // dot click in v1.4.0).
-            Closing += (s, e) => { e.Cancel = true; Hide(); };
+            Closing += (s, e) => { if (!AllowClose) { e.Cancel = true; Hide(); } };
         }
 
         public void ShowProfile(FriendEntry entry, int connections)

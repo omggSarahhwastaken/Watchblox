@@ -245,11 +245,14 @@ namespace Watchblox.Services
                     var root = doc.RootElement;
                     foreach (var g in root.GetProperty("data").EnumerateArray())
                     {
-                        var grp = g.GetProperty("group");
-                        var role = g.GetProperty("role");
+                        // One malformed entry must not nuke the whole batch.
+                        if (!g.TryGetProperty("group", out var grp) || grp.ValueKind != JsonValueKind.Object
+                            || !g.TryGetProperty("role", out var role) || role.ValueKind != JsonValueKind.Object
+                            || !grp.TryGetProperty("id", out var gid) || !gid.TryGetInt64(out var groupId))
+                            continue;
                         list.Add(new UserGroupInfo
                         {
-                            GroupId = grp.GetProperty("id").GetInt64(),
+                            GroupId = groupId,
                             GroupName = OptString(grp, "name"),
                             MemberCount = grp.TryGetProperty("memberCount", out var mc)
                                 && mc.TryGetInt32(out var m) ? m : 0,
@@ -358,7 +361,7 @@ namespace Watchblox.Services
                     using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
                     foreach (var u in doc.RootElement.GetProperty("data").EnumerateArray())
                     {
-                        long id = u.GetProperty("id").GetInt64();
+                        if (!u.TryGetProperty("id", out var idEl) || !idEl.TryGetInt64(out var id)) continue;
                         result[id] = new NameRecord
                         {
                             Id = id,
@@ -388,10 +391,13 @@ namespace Watchblox.Services
                     using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
                     foreach (var p in doc.RootElement.GetProperty("userPresences").EnumerateArray())
                     {
+                        if (!p.TryGetProperty("userId", out var uidEl) || !uidEl.TryGetInt64(out var uid)
+                            || !p.TryGetProperty("userPresenceType", out var typeEl) || !typeEl.TryGetInt32(out var ptype))
+                            continue;
                         result.Add(new PresenceInfo
                         {
-                            UserId = p.GetProperty("userId").GetInt64(),
-                            Type = p.GetProperty("userPresenceType").GetInt32(),
+                            UserId = uid,
+                            Type = ptype,
                             LastLocation = OptString(p, "lastLocation"),
                             PlaceId = OptLong(p, "placeId"),
                             RootPlaceId = OptLong(p, "rootPlaceId"),
