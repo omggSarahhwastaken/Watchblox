@@ -7,7 +7,15 @@
 3. Appends: [exe][zip payload][u64 LE zip size][b"WBXINSTL"].
 
 Usage:
-    python3 build_installer.py <repo_root> <zig_binary> <out_exe> [--payload-dir <dir>]
+    python3 build_installer.py <repo_root> <zig_binary> <out_exe> [--payload-dir <dir>] [--native-dll-dir <dir>]
+
+--native-dll-dir: a build output dir whose top-level *_cor3.dll files and
+app.ico are added to the payload beside the app exe. Required since the
+v1.5.2 startup crash: the single-file exe's extracted native WPF DLLs fail
+to load on some machines (DllNotFoundException in HwndSubclass), while the
+same DLLs beside the exe load fine. The installer wipes the install dir on
+every install, so the DLLs must ship in the payload or a reinstall re-breaks
+the app.
 """
 import os
 import struct
@@ -18,7 +26,26 @@ import zipfile
 MAGIC = b"WBXINSTL"
 
 
-def make_payload(repo_root, skip_files=()):
+NATIVE_DLLS = ["D3DCompiler_47_cor3.dll", "PenImc_cor3.dll",
+               "PresentationNative_cor3.dll", "vcruntime140_cor3.dll",
+               "wpfgfx_cor3.dll"]
+
+
+def native_dll_files(dll_dir):
+    """Top-level *_cor3.dll files + app.ico from a build output dir."""
+    found = []
+    try:
+        entries = os.listdir(dll_dir)
+    except OSError:
+        return found
+    for fn in entries:
+        full = os.path.join(dll_dir, fn)
+        if os.path.isfile(full) and (fn in NATIVE_DLLS or fn == "app.ico"):
+            found.append((full, fn))
+    return found
+
+
+def make_payload(repo_root, skip_files=(), extra=()):
     names = []
     for dirpath, dirnames, filenames in os.walk(repo_root):
         dirnames[:] = [d for d in dirnames if d not in (".git", "bin", "obj")]
@@ -31,6 +58,11 @@ def make_payload(repo_root, skip_files=()):
             if rel in skip_files or rel.replace(os.sep, "/") in skip_files:
                 continue
             names.append((full, rel))
+    seen = {rel for _, rel in names}
+    for full, rel in extra:
+        if rel not in seen:
+            names.append((full, rel))
+            seen.add(rel)
     names.sort(key=lambda t: t[1])
     buf = bytearray()
     import io
@@ -60,9 +92,14 @@ def main(argv):
     # self-contained publish folder instead — the modern install path.
     args = argv[1:]
     payload_dir = None
+    native_dll_dir = None
     if "--payload-dir" in args:
         i = args.index("--payload-dir")
         payload_dir = args[i + 1]
+        del args[i:i + 2]
+    if "--native-dll-dir" in args:
+        i = args.index("--native-dll-dir")
+        native_dll_dir = args[i + 1]
         del args[i:i + 2]
     if len(args) != 3:
         print(__doc__.strip().splitlines()[-3])
@@ -74,11 +111,22 @@ def main(argv):
     exe_tmp = os.path.join(here, "_installer_tmp.exe")
 
     if payload_dir:
+        extra = []
+        if native_dll_dir:
+            extra = native_dll_files(native_dll_dir)
+            missing = [d for d in NATIVE_DLLS
+                       if d not in {os.path.basename(f) for f, _ in extra}]
+            if missing:
+                print(f"ERROR: native DLLs missing from {native_dll_dir}: {missing}")
+                return 1
+            print(f"native DLLs: {sorted(os.path.basename(f) for f, _ in extra)}")
         payload, names = make_payload(payload_dir, skip_files={
             "_installer_tmp.exe", "_installer_tmp.pdb",
             os.path.basename(out_exe), "WatchbloxInstaller_x64.exe",
-        })
+        }, extra=extra)
         print(f"payload: {len(payload)} bytes, {len(names)} files (self-contained app)")
+        for n in names:
+            print(f"  {n}")
         assert any(n == "Watchblox.exe" for n in names), "app exe missing from payload!"
     else:
         payload, names = make_payload(repo_root, skip_files={
