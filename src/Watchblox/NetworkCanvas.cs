@@ -13,8 +13,10 @@ namespace Watchblox
     /// <summary>
     /// Renders a NetworkGraph as dots (friends, colored by presence) with
     /// lines between mutual friends. Pan with drag, zoom with the mouse
-    /// wheel, click a dot to select it. Pan/zoom are applied through a
-    /// RenderTransform so they stay smooth without redrawing.
+    /// wheel, click a dot to select it. Hovering a dot lights it up (glow,
+    /// brighter and slightly larger dot, its name) and shows a hand cursor.
+    /// Pan/zoom are applied through a RenderTransform so they stay smooth
+    /// without redrawing.
     /// </summary>
     public class NetworkCanvas : Canvas
     {
@@ -22,6 +24,7 @@ namespace Watchblox
 
         private NetworkGraph _graph;
         private int _selected = -1;
+        private int _hovered = -1;
         private HashSet<int> _selectedNeighbors = new HashSet<int>();
 
         private double _scale = 1, _tx, _ty;
@@ -38,6 +41,8 @@ namespace Watchblox
         private static readonly Brush AccentBrush = new SolidColorBrush(Color.FromRgb(0xff, 0x3b, 0x3b));
         private static readonly Brush LabelBrush = new SolidColorBrush(Color.FromRgb(0xb8, 0xbe, 0xbe));
         private static readonly Brush DimBrush = new SolidColorBrush(Color.FromRgb(0x6b, 0x72, 0x80));
+        private static readonly Brush HoverRingBrush = new SolidColorBrush(Color.FromRgb(0xff, 0xff, 0xff));
+        private static readonly Brush HoverHaloBrush = new SolidColorBrush(Color.FromArgb(0x40, 0xff, 0xff, 0xff));
 
         public NetworkGraph Graph
         {
@@ -46,6 +51,7 @@ namespace Watchblox
             {
                 _graph = value;
                 _selected = -1;
+                _hovered = -1;
                 _selectedNeighbors.Clear();
                 _fitted = false;
                 FitToView();
@@ -150,7 +156,19 @@ namespace Watchblox
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            if (_pressPoint == null) return;
+            if (_pressPoint == null)
+            {
+                // Hover tracking (no button down): light up the node under
+                // the cursor. Redraws only when the hovered node changes.
+                int h = HitTest(CursorPos(e));
+                if (h != _hovered)
+                {
+                    _hovered = h;
+                    Cursor = h >= 0 ? Cursors.Hand : null;
+                    InvalidateVisual();
+                }
+                return;
+            }
             var p = CursorPos(e);
             if (!_dragging)
             {
@@ -162,6 +180,17 @@ namespace Watchblox
             _ty += p.Y - _pressPoint.Value.Y;
             _pressPoint = p;
             ApplyTransform();
+        }
+
+        protected override void OnMouseLeave(MouseEventArgs e)
+        {
+            base.OnMouseLeave(e);
+            if (_hovered >= 0)
+            {
+                _hovered = -1;
+                Cursor = null;
+                InvalidateVisual();
+            }
         }
 
         protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
@@ -207,6 +236,12 @@ namespace Watchblox
             InvalidateVisual();
         }
 
+        /// <summary>Mixes a color toward white so a hovered dot reads as lit.</summary>
+        private static Color Brighten(Color c) => Color.FromRgb(
+            (byte)(c.R + (255 - c.R) * 0.55),
+            (byte)(c.G + (255 - c.G) * 0.55),
+            (byte)(c.B + (255 - c.B) * 0.55));
+
         private static Color PresenceColor(PresenceType s) => s switch
         {
             PresenceType.Online => Color.FromRgb(0x22, 0xc5, 0x5e),
@@ -236,18 +271,29 @@ namespace Watchblox
                 var n = _graph.Nodes[i];
                 var p = new Point(n.X, n.Y);
                 bool dim = hasSel && i != _selected && !_selectedNeighbors.Contains(i);
-                var fill = new SolidColorBrush(dim ? Color.FromRgb(0x3a, 0x3d, 0x40) : PresenceColor(n.Status));
+                bool hov = i == _hovered;
+                // Hover wins over dim: the node under the cursor always lights up.
+                var fillCol = hov ? Brighten(PresenceColor(n.Status))
+                    : dim ? Color.FromRgb(0x3a, 0x3d, 0x40) : PresenceColor(n.Status);
+                var fill = new SolidColorBrush(fillCol);
                 fill.Freeze();
-                dc.DrawEllipse(fill, new Pen(RingBrush, 2), p, NodeRadius, NodeRadius);
+                double r = hov ? NodeRadius + 2 : NodeRadius;
+                if (hov)
+                    dc.DrawEllipse(HoverHaloBrush, null, p, r + 6, r + 6);
+                dc.DrawEllipse(fill, new Pen(RingBrush, 2), p, r, r);
+                if (hov)
+                    dc.DrawEllipse(null, new Pen(HoverRingBrush, 2), p, r + 4, r + 4);
                 if (i == _selected)
                     dc.DrawEllipse(null, new Pen(AccentBrush, 2.5), p, NodeRadius + 5, NodeRadius + 5);
 
-                if (showLabels && !string.IsNullOrEmpty(n.DisplayName))
+                // Hovered node's name shows even when labels are off (but
+                // still hidden when zoomed far out, where text turns to mush).
+                if (!string.IsNullOrEmpty(n.DisplayName) && _scale > 0.55 && (showLabels || hov))
                 {
                     var ft = new FormattedText(n.DisplayName, CultureInfo.CurrentCulture,
                         FlowDirection.LeftToRight, LabelFace, 11,
-                        dim ? DimBrush : LabelBrush, 1.0);
-                    dc.DrawText(ft, new Point(p.X - ft.Width / 2, p.Y + NodeRadius + 3));
+                        dim && !hov ? DimBrush : LabelBrush, 1.0);
+                    dc.DrawText(ft, new Point(p.X - ft.Width / 2, p.Y + r + 3));
                 }
             }
         }
