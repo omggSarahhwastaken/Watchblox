@@ -643,6 +643,10 @@ namespace Watchblox
                 NetworkCanvas.Graph = graph;
                 NetworkStatus.Text = $"{graph.Nodes.Count} friends · {graph.Edges.Count} connections. " +
                                      "Click a dot for their profile — drag to pan, scroll to zoom.";
+                if (svc.HitRateLimit)
+                    NetworkStatus.Text += $" Partial network — Roblox rate-limited the scan ({svc.SkippedCount} lists skipped). Wait a few minutes, then build again for the rest.";
+                else if (svc.SkippedCount > 0)
+                    NetworkStatus.Text += $" ({svc.SkippedCount} lists skipped.)";
             }
             catch (OperationCanceledException)
             {

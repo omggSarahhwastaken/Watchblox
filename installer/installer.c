@@ -490,6 +490,36 @@ static void DoInstall(const char *selfPath) {
         Fail("Could not copy the application files.");
     }
 
+    /* Sibling runtime files: when this installer ships in a folder with
+     * the native WPF DLLs beside it (the DLL-folder distribution), copy
+     * each one into the install dir too. The app only launches when these
+     * sit beside its exe, so a sibling copy guarantees they land there
+     * even if the embedded payload is ever trimmed. Skipped when running
+     * from inside the install dir itself (files already there). */
+    {
+        static const char *siblings[] = {
+            "D3DCompiler_47_cor3.dll", "PenImc_cor3.dll",
+            "PresentationNative_cor3.dll", "vcruntime140_cor3.dll",
+            "wpfgfx_cor3.dll", "app.ico",
+        };
+        char selfDir2[MAX_PATH];
+        int i;
+        DirNameOf(selfPath, selfDir2, sizeof(selfDir2));
+        if (!StrCaseEq(selfDir2, installDir)) {
+            for (i = 0; i < (int)(sizeof(siblings) / sizeof(siblings[0])); i++) {
+                char src[MAX_PATH], dst[MAX_PATH];
+                _snprintf(src, sizeof(src), "%s\\%s", selfDir2, siblings[i]);
+                src[sizeof(src) - 1] = 0;
+                _snprintf(dst, sizeof(dst), "%s\\%s", installDir, siblings[i]);
+                dst[sizeof(dst) - 1] = 0;
+                if (GetFileAttributesA(src) != INVALID_FILE_ATTRIBUTES) {
+                    if (CopyFileA(src, dst, FALSE))
+                        printf("  Installed sibling %s.\n", siblings[i]);
+                }
+            }
+        }
+    }
+
     /* Keep a copy of the installer for Add/Remove Programs. */
     _snprintf(selfCopy, sizeof(selfCopy), "%s\\%s", installDir, INSTALLER_SELF_NAME);
     selfCopy[sizeof(selfCopy) - 1] = 0;

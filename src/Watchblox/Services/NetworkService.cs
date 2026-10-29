@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -28,14 +27,21 @@ namespace Watchblox.Services
     /// Builds the mutual-friend network: one node per friend, one edge per
     /// pair of friends who have each other added. Friend lists come from the
     /// MutualService cache (1h TTL) so repeat builds are instant; fresh
-    /// fetches are throttled to a few requests per second with progress and
-    /// cancellation. Layout is a Fruchterman-Reingold force simulation run
-    /// on a background thread.
+    /// fetches run one at a time, paced to about one per second, with
+    /// progress and cancellation. A failed list is skipped, never fatal,
+    /// and a rate-limit stops the scan early instead of hammering every
+    /// remaining friend while already limited. Layout is a
+    /// Fruchterman-Reingold force simulation run on a background thread.
     /// </summary>
     public class NetworkService
     {
         private readonly MutualService _mutuals;
         public NetworkService(MutualService mutuals) { _mutuals = mutuals; }
+
+        /// <summary>Friend lists skipped during the last build (failed or rate-limited).</summary>
+        public int SkippedCount { get; private set; }
+        /// <summary>True when the last build stopped early because Roblox rate-limited the scan.</summary>
+        public bool HitRateLimit { get; private set; }
 
         public async Task<NetworkGraph> BuildAsync(
             List<FriendEntry> friends,
@@ -52,27 +58,40 @@ namespace Watchblox.Services
                     Status = f.Status
                 });
 
-            // Friend lists fetch concurrently (5 at a time — the API client already
-            // backs off exponentially on 429s). The 1h MutualService cache makes
-            // rebuilds nearly instant.
-            var sets = new ConcurrentDictionary<long, HashSet<long>>();
+            // Friend lists fetch one at a time, paced by MutualService.
+            // Rushing the scan tripped Roblox's rate limit, and one failed
+            // list used to kill the whole build — now a failed list is just
+            // skipped, and a rate-limit stops the scan early instead of
+            // hammering every remaining friend while already limited.
+            var sets = new Dictionary<long, HashSet<long>>();
             int done = 0;
-            using var gate = new SemaphoreSlim(5, 5);
-            var tasks = graph.Nodes.Select(async n =>
+            SkippedCount = 0;
+            HitRateLimit = false;
+            foreach (var n in graph.Nodes)
             {
-                await gate.WaitAsync(ct);
-                try
+                ct.ThrowIfCancellationRequested();
+                if (HitRateLimit)
                 {
-                    ct.ThrowIfCancellationRequested();
-                    sets[n.UserId] = await _mutuals.GetFriendIdsAsync(n.UserId);
+                    sets[n.UserId] = new HashSet<long>();
+                    SkippedCount++;
                 }
-                finally
+                else
                 {
-                    gate.Release();
-                    progress?.Report((Interlocked.Increment(ref done), graph.Nodes.Count));
+                    try { sets[n.UserId] = await _mutuals.GetFriendIdsAsync(n.UserId, ct); }
+                    catch (RobloxRateLimitedException)
+                    {
+                        sets[n.UserId] = new HashSet<long>();
+                        SkippedCount++;
+                        HitRateLimit = true;
+                    }
+                    catch (Exception)
+                    {
+                        sets[n.UserId] = new HashSet<long>();
+                        SkippedCount++;
+                    }
                 }
-            });
-            await Task.WhenAll(tasks);
+                progress?.Report((++done, graph.Nodes.Count));
+            }
             ct.ThrowIfCancellationRequested();
 
             int count = graph.Nodes.Count;

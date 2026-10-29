@@ -39,6 +39,17 @@ namespace Watchblox.Services
     }
 
     /// <summary>
+    /// Roblox answered 429 even after backoff retries. This is neither a
+    /// private profile nor a connection problem: the caller should skip
+    /// this user for now and must NOT cache the outcome (a later attempt
+    /// may succeed once the limit window clears).
+    /// </summary>
+    public class RobloxRateLimitedException : Exception
+    {
+        public RobloxRateLimitedException(string message) : base(message) { }
+    }
+
+    /// <summary>
     /// Roblox API client. Works without credentials, but a session cookie
     /// (set via SetSessionCookie) makes presence accurate: Roblox only shows
     /// real online status to friends, so anonymous presence often reads
@@ -116,6 +127,13 @@ namespace Watchblox.Services
                     _backoffSeconds = Math.Min(60, (int)Math.Pow(2, attempt) * 5);
                     Status($"Rate limited — retrying in {_backoffSeconds}s…");
                     await Task.Delay(_backoffSeconds * 1000);
+                }
+                catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    // Backoff retries exhausted (guard above): still limited.
+                    // Say so honestly instead of blaming the connection.
+                    throw new RobloxRateLimitedException(
+                        "Roblox is rate-limiting requests right now — wait a few minutes, then try again.");
                 }
                 catch (Exception)
                 {
@@ -199,6 +217,9 @@ namespace Watchblox.Services
                         if (f.TryGetProperty("id", out var id) && id.TryGetInt64(out var l)) ids.Add(l);
                     cursor = OptString(root, "nextPageCursor");
                     pages++;
+                    // Pace multi-page friends: don't burst page requests.
+                    if (!string.IsNullOrEmpty(cursor) && ids.Count < 1000 && pages < 12)
+                        await Task.Delay(300);
                 } while (!string.IsNullOrEmpty(cursor) && ids.Count < 1000 && pages < 12);
                 return ids;
             }, "friend list");
