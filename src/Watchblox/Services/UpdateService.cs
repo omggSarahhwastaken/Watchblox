@@ -16,6 +16,7 @@ namespace Watchblox.Services
         public string Url { get; set; } = "";
         public string Encoding { get; set; } = "";
         public string Notes { get; set; } = "";
+        public string Sha256 { get; set; } = "";
         public string Message { get; set; } = "";
     }
 
@@ -43,6 +44,7 @@ namespace Watchblox.Services
                         string dl = root.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "";
                         string enc = root.TryGetProperty("encoding", out var e) ? e.GetString() ?? "" : "";
                         string notes = root.TryGetProperty("notes", out var n) ? n.GetString() ?? "" : "";
+                        string sha = root.TryGetProperty("sha256", out var sh) ? sh.GetString() ?? "" : "";
                         if (string.IsNullOrWhiteSpace(latest) || string.IsNullOrWhiteSpace(dl)
                             || latest == "0.0.0")
                             return new UpdateInfo
@@ -58,7 +60,8 @@ namespace Watchblox.Services
                                 LocalVersion = current,
                                 Url = dl,
                                 Encoding = enc,
-                                Notes = notes
+                                Notes = notes,
+                                Sha256 = sha
                             };
                         return new UpdateInfo
                         {
@@ -116,9 +119,42 @@ namespace Watchblox.Services
                         }
                     }
                 }
+                // Integrity check before launching: never run a download
+                // we haven't verified. The manifest publishes a SHA-256
+                // (same schema as the Toolkit); without one, at least
+                // check the file looks like a real installer.
+                if (!VerifyDownload(tmp, info.Sha256))
+                {
+                    try { System.IO.File.Delete(tmp); } catch { }
+                    return false;
+                }
                 System.Diagnostics.Process.Start(
                     new System.Diagnostics.ProcessStartInfo(tmp) { UseShellExecute = true });
                 return true;
+            }
+            catch { return false; }
+        }
+
+        private static bool VerifyDownload(string path, string expectedSha256)
+        {
+            try
+            {
+                var fi = new System.IO.FileInfo(path);
+                if (!fi.Exists || fi.Length < 1024) return false;
+                using (var fs = System.IO.File.OpenRead(path))
+                {
+                    byte[] magic = new byte[2];
+                    if (fs.Read(magic, 0, 2) != 2 || magic[0] != (byte)'M' || magic[1] != (byte)'Z')
+                        return false;
+                }
+                if (string.IsNullOrWhiteSpace(expectedSha256)) return true;
+                using (var sha = System.Security.Cryptography.SHA256.Create())
+                using (var fs = System.IO.File.OpenRead(path))
+                {
+                    string actual = BitConverter.ToString(sha.ComputeHash(fs)).Replace("-", "");
+                    return string.Equals(actual, expectedSha256.Trim(),
+                        StringComparison.OrdinalIgnoreCase);
+                }
             }
             catch { return false; }
         }

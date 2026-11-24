@@ -39,6 +39,15 @@ namespace Watchblox.Services
     }
 
     /// <summary>
+    /// Roblox refused the request because no session is attached — the
+    /// caller should prompt to log in, not treat the result as empty.
+    /// </summary>
+    public class RobloxAuthRequiredException : RobloxApiException
+    {
+        public RobloxAuthRequiredException(string message) : base(message) { }
+    }
+
+    /// <summary>
     /// Roblox answered 429 even after backoff retries. This is neither a
     /// private profile nor a connection problem: the caller should skip
     /// this user for now and must NOT cache the outcome (a later attempt
@@ -209,7 +218,21 @@ namespace Watchblox.Services
                         + (string.IsNullOrEmpty(cursor) ? "" : "&cursor=" + Uri.EscapeDataString(cursor));
                     var resp = await _http.GetAsync(url);
                     if (resp.StatusCode == HttpStatusCode.Forbidden)
+                    {
+                        // A 403 here has two very different causes, and the
+                        // app used to report both as "profile is private".
+                        // Roblox now requires a login for friend lists at
+                        // all — even public ones 403 anonymously — so
+                        // without a session cookie the list is unreachable
+                        // no matter how public the profile is. With a
+                        // cookie, a 403 really does mean the list is
+                        // private (or hidden from that account).
+                        if (!IsLoggedIn)
+                            throw new RobloxAuthRequiredException(
+                                "Roblox now needs a login to load friend lists — " +
+                                "log in in Settings, then the list will load.");
                         throw new RobloxApiException("This Roblox profile is private — friend list unavailable.");
+                    }
                     resp.EnsureSuccessStatusCode();
                     using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
                     var root = doc.RootElement;

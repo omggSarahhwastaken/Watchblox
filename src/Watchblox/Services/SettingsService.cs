@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using Watchblox.Models;
@@ -44,6 +45,20 @@ namespace Watchblox.Services
                 ConfigBroken = anyFile; // files exist but neither parses
                 _recoveredFromBackup = false;
             }
+            Sanitize(Settings);
+        }
+
+        private static void Sanitize(AppSettings s)
+        {
+            if (s == null) return;
+            // A corrupt-but-parseable file must not break polling, the
+            // UI, or the sync: clamp to the values the UI itself offers
+            // (poll 30–120s, scale 80–150%) and never leave a null list.
+            s.PollIntervalSeconds = Math.Clamp(s.PollIntervalSeconds, 30, 120);
+            s.InterfaceScale = Math.Clamp(s.InterfaceScale, 0.8, 1.5);
+            s.WatchlistIds ??= new List<long>();
+            s.TrackedUsername ??= "";
+            s.EncryptedCookie ??= "";
         }
 
         private static AppSettings TryParse(string path)

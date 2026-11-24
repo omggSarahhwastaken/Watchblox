@@ -227,7 +227,6 @@ namespace Watchblox
             NetworkCanvas.NodeSelected -= NetworkNode_Selected;
             NetworkCanvas.NodeSelected += NetworkNode_Selected;
             FilterChip_Click(ChipAll, new RoutedEventArgs());
-            _ = RestoreSessionAsync();
 
             _pollTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(_settings.Settings.PollIntervalSeconds) };
             // Async-void timer lambdas: an unhandled throw here kills the
@@ -240,7 +239,10 @@ namespace Watchblox
             _syncTimer.Start();
 
             SetStatus("Starting…");
-            _ = InitDataAsync();
+            // Restore the session BEFORE the first friends sync: the sync
+            // used to race the restore, so it often went out without the
+            // cookie and the friends list failed even for a logged-in user.
+            _ = InitWithSessionAsync();
             if (_settings.Settings.CheckForUpdatesOnLaunch)
             {
                 // Update checks are extra work: a minimized launch defers
@@ -267,6 +269,14 @@ namespace Watchblox
                 if (_settings.Settings.CheckForUpdatesOnLaunch)
                     _ = CheckForUpdatesAndMaybeInstallAsync();
             }
+        }
+
+        // Session restore, then the first data load: the friends list
+        // needs the cookie, so the sync must wait for the restore.
+        private async Task InitWithSessionAsync()
+        {
+            await RestoreSessionAsync();
+            await InitDataAsync();
         }
 
         // Runs on the UI synchronization context: every await continuation
@@ -532,6 +542,16 @@ namespace Watchblox
             _friendsView.Clear();
             foreach (var f in friends) _friendsView.Add(f);
             FriendsEmpty.Visibility = friends.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            if (friends.Count == 0)
+            {
+                // Point at the actual fix when the list is empty because
+                // the user isn't logged in: Roblox gates friend lists
+                // behind a login now, so "no friends match" would be a lie.
+                bool hasFriends = _entries.Values.Any(e => !e.IsWatchlist);
+                FriendsEmpty.Text = !_api.IsLoggedIn && !hasFriends
+                    ? "Log in in Settings to load your friends list — Roblox needs a login for it now."
+                    : "No friends match.";
+            }
 
             var watch = _entries.Values
                 .Where(e => e.IsWatchlist)
@@ -643,7 +663,9 @@ namespace Watchblox
                 NetworkCanvas.Graph = graph;
                 NetworkStatus.Text = $"{graph.Nodes.Count} friends · {graph.Edges.Count} connections. " +
                                      "Click a dot for their profile — drag to pan, scroll to zoom.";
-                if (svc.HitRateLimit)
+                if (svc.HitAuthRequired)
+                    NetworkStatus.Text += " Log in in Settings to load friend lists — Roblox needs a login for them now.";
+                else if (svc.HitRateLimit)
                     NetworkStatus.Text += $" Partial network — Roblox rate-limited the scan ({svc.SkippedCount} lists skipped). Wait a few minutes, then build again for the rest.";
                 else if (svc.SkippedCount > 0)
                     NetworkStatus.Text += $" ({svc.SkippedCount} lists skipped.)";
@@ -954,6 +976,13 @@ namespace Watchblox
             _watchView.Clear();
             _mutualView.Clear();
             _mutuals.Clear();
+            // Don't carry the old account's activity into the new one:
+            // the store persists it, so it would come back next launch.
+            _activity.Clear();
+            _activityView.Clear();
+            ActivityEmpty.Visibility = Visibility.Visible;
+            // Let the Network page auto-build for the new account too.
+            _networkAutoBuilt = false;
             // Don't carry the old account's graph or presence state into
             // the new account: the tray icon and network subscription are
             // also re-created on the next InitMain, so drop the old ones
@@ -997,13 +1026,23 @@ namespace Watchblox
                 UpdateLoginUi(true, me.Username);
                 SetStatus("Logged in as @" + me.Username + ".");
             }
-            catch
+            catch (Exception ex) when (ex is RobloxApiException || ex is System.Security.Cryptography.CryptographicException)
             {
-                // Bad or expired blob: drop it and stay logged out.
+                // Auth failure (bad/expired cookie) or an unprotectable
+                // blob: the saved login can never work again, so drop it.
                 _api.ClearSessionCookie();
                 _settings.Settings.EncryptedCookie = "";
                 _settings.Save();
                 UpdateLoginUi(false, "");
+            }
+            catch
+            {
+                // Connectivity failure (couldn't reach Roblox): keep the
+                // saved cookie so the next launch restores it. Logged
+                // out for this launch only.
+                _api.ClearSessionCookie();
+                UpdateLoginUi(false, "");
+                SetStatus("Couldn't reach Roblox — your saved login is kept and will restore next launch.");
             }
         }
 
@@ -1026,6 +1065,17 @@ namespace Watchblox
                 UpdateLoginUi(true, me.Username);
                 LoginStatus.Text = "";
                 SetStatus("Logged in as @" + me.Username + " — presence is now friend-accurate.");
+                // The mutual cache may hold anonymous-403 empties (1h TTL):
+                // clear it so mutuals/network work right away, and reset
+                // the badges so the sweep re-warms them (a cached 0 would
+                // otherwise stick forever, since the sweep only targets -1).
+                _mutuals.Clear();
+                foreach (var entry in _entries.Values) entry.MutualCount = -1;
+                // A login is what unlocks the friends list (Roblox gates
+                // it behind auth now), so re-sync friends right away —
+                // otherwise the list stays empty until the 15-minute
+                // sync timer fires.
+                _ = SyncFriendsAsync();
                 _ = PollPresenceAsync(); // re-poll with the session: statuses sharpen up
             }
             catch (Exception ex)

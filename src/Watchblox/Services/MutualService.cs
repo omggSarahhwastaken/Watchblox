@@ -45,14 +45,16 @@ namespace Watchblox.Services
                 if (gap.TotalMilliseconds < MinFetchGapMs)
                     await Task.Delay(MinFetchGapMs - (int)gap.TotalMilliseconds, ct);
                 try { result = new HashSet<long>(await _api.GetFriendIdsAsync(userId)); }
-                catch (RobloxApiException) { result = new HashSet<long>(); } // private profile
+                catch (RobloxAuthRequiredException) { throw; } // login needed — never an empty set, never cached
                 catch (RobloxRateLimitedException)
                 {
-                    // Limited right now, not private: return empty for this
-                    // build but do NOT cache it, so a later rebuild retries.
+                    // Limited right now, not private: let the caller stop
+                    // early (NetworkService) or report it (mutuals page).
+                    // Never cached, so a later rebuild retries.
                     _lastFetchUtc = DateTime.UtcNow;
-                    return new HashSet<long>();
+                    throw;
                 }
+                catch (RobloxApiException) { result = new HashSet<long>(); } // private profile (logged in) — genuinely empty
                 _lastFetchUtc = DateTime.UtcNow;
             }
             finally { _paceGate.Release(); }

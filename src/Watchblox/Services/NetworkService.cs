@@ -42,6 +42,8 @@ namespace Watchblox.Services
         public int SkippedCount { get; private set; }
         /// <summary>True when the last build stopped early because Roblox rate-limited the scan.</summary>
         public bool HitRateLimit { get; private set; }
+        /// <summary>True when the last build stopped early because friend lists need a login.</summary>
+        public bool HitAuthRequired { get; private set; }
 
         public async Task<NetworkGraph> BuildAsync(
             List<FriendEntry> friends,
@@ -67,10 +69,11 @@ namespace Watchblox.Services
             int done = 0;
             SkippedCount = 0;
             HitRateLimit = false;
+            HitAuthRequired = false;
             foreach (var n in graph.Nodes)
             {
                 ct.ThrowIfCancellationRequested();
-                if (HitRateLimit)
+                if (HitRateLimit || HitAuthRequired)
                 {
                     sets[n.UserId] = new HashSet<long>();
                     SkippedCount++;
@@ -78,6 +81,15 @@ namespace Watchblox.Services
                 else
                 {
                     try { sets[n.UserId] = await _mutuals.GetFriendIdsAsync(n.UserId, ct); }
+                    catch (RobloxAuthRequiredException)
+                    {
+                        // No login: every remaining list would 403 the
+                        // same way — stop now and say so instead of
+                        // burning a second of pacing per friend.
+                        sets[n.UserId] = new HashSet<long>();
+                        SkippedCount++;
+                        HitAuthRequired = true;
+                    }
                     catch (RobloxRateLimitedException)
                     {
                         sets[n.UserId] = new HashSet<long>();
