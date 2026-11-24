@@ -1055,6 +1055,24 @@ namespace Watchblox
                 LoginStatus.Text = "Paste your .ROBLOSECURITY cookie first.";
                 return;
             }
+            await CompleteLoginAsync(cookie);
+        }
+
+        private async void BrowserLogin_Click(object sender, RoutedEventArgs e)
+        {
+            LoginStatus.Text = "";
+            var win = new LoginWindow { Owner = this };
+            bool? ok = win.ShowDialog();
+            if (ok == true && !string.IsNullOrEmpty(win.SessionCookie))
+                await CompleteLoginAsync(win.SessionCookie);
+            // Otherwise the user closed the login window (or the runtime
+            // is missing — the window says so); the paste box is still there.
+        }
+
+        /// <summary>Shared by the paste login and the in-app browser login:
+        /// verify the cookie, save it encrypted, and re-sync with it.</summary>
+        private async Task CompleteLoginAsync(string cookie)
+        {
             LoginStatus.Text = "Verifying…";
             try
             {

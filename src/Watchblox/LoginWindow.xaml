@@ -1,0 +1,27 @@
+<Window x:Class="Watchblox.LoginWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="Log in to Roblox" Height="660" Width="500"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource SurfaceBrush}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <TextBlock x:Name="HeaderText" Grid.Row="0" FontSize="13"
+                   Foreground="{StaticResource TextDimBrush}" TextWrapping="Wrap"
+                   Margin="16,12,16,8"
+                   Text="Sign in with your Roblox account. Watchblox only reads the session it creates — your password never touches the app."/>
+        <wv2:WebView2 x:Name="Browser" Grid.Row="1"/>
+        <StackPanel x:Name="ErrorPanel" Grid.Row="1" Visibility="Collapsed"
+                    VerticalAlignment="Center" Margin="24,0">
+            <TextBlock x:Name="ErrorText" FontSize="13"
+                       Foreground="{StaticResource TextBrush}" TextWrapping="Wrap"/>
+            <Button Content="Close" Style="{StaticResource GhostButton}"
+                    Padding="18,8" Margin="0,16,0,0" HorizontalAlignment="Left"
+                    Click="Close_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

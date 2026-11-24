@@ -469,6 +469,12 @@
                                    FontSize="13" Foreground="{StaticResource TextDimBrush}"
                                    TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <StackPanel x:Name="LoginForm">
+                            <Button Content="Log in with Roblox" Style="{StaticResource PrimaryButton}"
+                                    Padding="18,8" Margin="0,0,0,8" HorizontalAlignment="Left"
+                                    Click="BrowserLogin_Click"/>
+                            <TextBlock Text="or paste your .ROBLOSECURITY cookie instead:"
+                                       FontSize="12" Foreground="{StaticResource TextDimBrush}"
+                                       Margin="0,0,0,8"/>
                             <PasswordBox x:Name="CookieBox" Width="420" HorizontalAlignment="Left"
                                          Margin="0,0,0,8"/>
                             <StackPanel Orientation="Horizontal">
@@ -479,7 +485,7 @@
                                            VerticalAlignment="Center" Margin="12,0,0,0"
                                            TextWrapping="Wrap" MaxWidth="300"/>
                             </StackPanel>
-                            <TextBlock Text="Paste your .ROBLOSECURITY cookie (browser dev tools → Application → Cookies → roblox.com). It is encrypted on this PC and only ever sent to Roblox."
+                            <TextBlock Text="The cookie is encrypted on this PC and only ever sent to Roblox."
                                        FontSize="12" Foreground="{StaticResource TextDimBrush}"
                                        TextWrapping="Wrap" Margin="0,8,0,0"/>
                         </StackPanel>
